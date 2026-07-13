@@ -134,9 +134,16 @@ app.post('/api/agent/query', wrap(async (req, res) => {
 // proxy de Vite ni de rutas absolutas: las llamadas relativas /api funcionan directas.
 const path = require('path');
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
-app.use(express.static(clientDist));
+// El index.html NUNCA se cachea (así el navegador siempre carga el JS más reciente,
+// cuyo nombre lleva un hash). Los assets con hash sí pueden cachearse.
+app.use(express.static(clientDist, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
+}));
 // Fallback SPA: cualquier ruta que NO sea /api ni /health devuelve el index.html.
 app.get(/^\/(?!api\/|health\b).*/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.join(clientDist, 'index.html'), (err) => {
     if (err) res.status(404).send('Frontend no compilado. Ejecuta: npm run build');
   });
