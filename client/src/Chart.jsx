@@ -11,6 +11,8 @@ const DIM_RE = /(^|[_\s])(mes|month|a[nñ]?o|anio|anyo|ano|year|dia|dias|day|sem
 const MES_RE = /(^|[_\s])(mes|month)([_\s]|$)/i;
 const FECHA_RE = /fecha|date/i;
 const MESES_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// Acorta etiquetas largas con "…" (el nombre completo se ve en el tooltip).
+const truncate = (v, n = 22) => { const s = String(v); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 
 // Formatea una fecha ISO (2025-03-03T00:00:00) como dd/mm/aaaa, o un año-mes (2026-06) como "jun 2026".
 const fmtFecha = (v) => {
@@ -118,13 +120,25 @@ export default function Chart({ data }) {
 
   // Normaliza y limita para que sea legible.
   const rows = data.slice(0, 20).map((r) => ({ ...r, [spec.y]: Number(r[spec.y]) }));
+  // Barras con categorías de TEXTO largo (productos, clientes…) → horizontal, para que
+  // los nombres no se corten. Las de fecha/mes siguen verticales (etiquetas cortas).
+  const catBar = spec.type === 'bar' && !MES_RE.test(spec.x) && !FECHA_RE.test(spec.x);
+  const chartH = catBar ? Math.max(240, rows.length * 34) : 320;
 
   return (
     <div style={{ marginTop: '1rem' }}>
       <h3 style={{ marginBottom: '0.3rem' }}>Gráfico <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: '0.85rem' }}>({nombres[spec.type]})</span></h3>
-      <div style={{ width: '100%', height: 320 }}>
+      <div style={{ width: '100%', height: chartH }}>
         <ResponsiveContainer>
-          {spec.type === 'bar' ? (
+          {catBar ? (
+            <BarChart data={rows} layout="vertical" margin={{ top: 6, right: 40, bottom: 6, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtNum} />
+              <YAxis type="category" dataKey={spec.x} width={160} interval={0} tick={{ fontSize: 11 }} tickFormatter={(v) => truncate(v, 24)} />
+              <Tooltip formatter={fmtNum} />
+              <Bar dataKey={spec.y} fill="#2563eb" />
+            </BarChart>
+          ) : spec.type === 'bar' ? (
             <BarChart data={rows} margin={{ top: 10, right: 20, bottom: 40, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey={spec.x} angle={-30} textAnchor="end" interval={0} height={60} tick={{ fontSize: 11 }} tickFormatter={xFmt} />
