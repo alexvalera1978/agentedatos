@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Orus · Manual de uso para The Extreme Collection</title>
+<style>
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.5; }
+  h1 { color: #0b1220; font-size: 24pt; margin-bottom: 2pt; }
+  h2 { color: #1d4ed8; font-size: 16pt; border-bottom: 2px solid #dbeafe; padding-bottom: 3pt; margin-top: 22pt; }
+  h3 { color: #0b1220; font-size: 12.5pt; margin-top: 14pt; }
+  .sub { color: #6b7280; font-size: 11pt; margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10pt; }
+  th { background: #0b1220; color: #fff; text-align: left; padding: 6px 8px; }
+  td { border: 1px solid #e5e7eb; padding: 6px 8px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  code, .mono { font-family: Consolas, 'Courier New', monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 9.5pt; }
+  .callout { background: #f0f9ff; border-left: 4px solid #38bdf8; padding: 8px 12px; margin: 10pt 0; }
+  .warn { background: #fff7ed; border-left: 4px solid #f59e0b; padding: 8px 12px; margin: 10pt 0; }
+  .q { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px; margin: 5pt 0; }
+  .q b { color: #0b1220; }
+  .green { color: #166534; font-weight: 600; }
+  .blue { color: #1e40af; font-weight: 600; }
+  .cover { color: #64748b; }
+  ul { margin: 4pt 0; }
+</style>
+</head>
+<body>
+
+<h1>Orus <span class="cover">by TEC</span></h1>
+<p class="sub">Manual de uso · The Extreme Collection</p>
+<hr>
+
+<h2>1. Qué es Orus y cómo se usa</h2>
+<p><b>Orus</b> es vuestro asistente de datos: le preguntáis en lenguaje normal y os responde con las cifras reales de vuestro negocio. No hay que saber informática ni conocer las tablas: se escribe la pregunta como se le haría a una persona.</p>
+<p>Cada respuesta tiene tres partes:</p>
+<ul>
+<li><b>Un resumen en texto</b> con lo más importante.</li>
+<li><b>Una tabla</b> con el detalle.</li>
+<li><b>Un gráfico</b> (cuando aporta), y una <b>etiqueta de color</b> que indica de dónde salieron los datos.</li>
+</ul>
+
+<h2>2. Vuestros dos sistemas de datos</h2>
+<p>The Extreme Collection trabaja con dos sistemas, y Orus sabe a cuál acudir según la pregunta:</p>
+<table>
+<tr><th>Sistema</th><th>Qué contiene</th><th>Etiqueta</th></tr>
+<tr><td><b>Shopify</b></td><td>Ventas a cliente final, pedidos, facturación, clientes finales, prendas más vendidas.</td><td class="green">🛍️ Shopify Nacional</td></tr>
+<tr><td><b>ERP</b> (Soft Textil / STM)</td><td>Stock, catálogo, temporadas, almacenes, precio de coste, clientes B2B (boutiques/terceros).</td><td class="blue">🗄️ ERP</td></tr>
+</table>
+
+<div class="callout">
+<b>Cómo saber de dónde viene el dato:</b> mira la etiqueta de color bajo cada respuesta. <span class="green">🛍️ verde = Shopify</span> · <span class="blue">🗄️ azul = ERP</span>. Si una consulta usa las dos (por ejemplo el margen), verás las dos etiquetas.
+</div>
+
+<h2>3. Qué pregunta va a cada sistema</h2>
+<table>
+<tr><th>Si preguntas por…</th><th>Orus usa…</th></tr>
+<tr><td>Ventas, ingresos, facturación, ticket medio (cliente final)</td><td class="green">🛍️ Shopify</td></tr>
+<tr><td>Pedidos, número de pedidos, listados de pedidos</td><td class="green">🛍️ Shopify</td></tr>
+<tr><td>Mejores clientes (cliente final)</td><td class="green">🛍️ Shopify</td></tr>
+<tr><td>Prendas más vendidas</td><td class="green">🛍️ Shopify</td></tr>
+<tr><td>Cambios / devoluciones</td><td class="green">🛍️ Shopify</td></tr>
+<tr><td>Stock / inventario / mercancía disponible</td><td class="blue">🗄️ ERP</td></tr>
+<tr><td>Catálogo / artículos / temporadas / familias</td><td class="blue">🗄️ ERP</td></tr>
+<tr><td>Precio de coste</td><td class="blue">🗄️ ERP</td></tr>
+<tr><td>Clientes B2B / boutiques / ventas a terceros</td><td class="blue">🗄️ ERP</td></tr>
+<tr><td><b>Margen / rentabilidad</b></td><td>🛍️ Shopify <b>+</b> 🗄️ ERP</td></tr>
+</table>
+
+<h2>4. Reglas de negocio que Orus ya aplica</h2>
+<p>Estas reglas se acordaron en la sesión de entrenamiento y están integradas, así que no hay que recordárselas:</p>
+<ul>
+<li><b>Ventas = Shopify, siempre.</b> Se obtienen de los pedidos (no de Analytics). Suma los canales <b>Online Store + Punto de Venta (tienda física) + Venta asistida (Draft Orders)</b> y <b>excluye</b> el canal de cambios (iF Returns), que no es venta.</li>
+<li><b>Hora de España.</b> Los pedidos se filtran en horario Europe/Madrid (evita descuadres por la diferencia con UTC).</li>
+<li><b>Mejores clientes.</b> Excluye estilistas y cesiones (préstamos de prenda, no ventas reales) e informa de cuántos ha dejado fuera.</li>
+<li><b>Stock = ERP, por temporada y almacenes activos</b> (Central y Claudio Coello). No cuenta almacenes internos.</li>
+<li><b>Temporadas activas:</b> Primavera 26 y la próxima Invierno 26.</li>
+<li><b>Coste.</b> Como el campo de coste del ERP suele estar vacío, usa la tarifa "Venta Terceros Nacional" como coste de referencia.</li>
+<li><b>Margen fiable.</b> Cruza el precio realmente cobrado en Shopify con el coste del ERP.</li>
+<li><b>No mezcla</b> las ventas B2B del ERP con las B2C de Shopify: son mercados distintos.</li>
+</ul>
+
+<h2>5. Ejemplos de preguntas para probar cada cosa</h2>
+<p>Puedes copiar estas preguntas tal cual. Entre paréntesis, la fuente que verás en la etiqueta.</p>
+
+<h3>🛍️ Ventas (Shopify)</h3>
+<div class="q"><b>¿Cuánto hemos vendido en junio de 2026?</b><br>→ Total del mes + desglose por día + gráfico de evolución.</div>
+<div class="q"><b>Dame las ventas de 2026 por meses.</b><br>→ Una fila por mes con su gráfico comparativo.</div>
+<div class="q"><b>¿Cuál fue el ticket medio en junio de 2026?</b><br>→ Importe medio por pedido.</div>
+<div class="q"><b>¿Cuántos cambios o devoluciones hubo en junio de 2026?</b><br>→ Usa el canal de cambios (iF Returns).</div>
+
+<h3>🛍️ Clientes y productos (Shopify)</h3>
+<div class="q"><b>¿Quiénes fueron los mejores clientes en junio de 2026?</b><br>→ Ranking por gasto, sin estilistas/cesiones.</div>
+<div class="q"><b>¿Cuáles son las prendas más vendidas en junio de 2026?</b><br>→ Ranking por unidades (o por importe si lo pides).</div>
+
+<h3>🗄️ Stock y catálogo (ERP)</h3>
+<div class="q"><b>¿Cuánto stock tenemos de la temporada actual?</b><br>→ Unidades disponibles de Primavera 26 en los almacenes activos.</div>
+<div class="q"><b>Dame el stock por artículo de la temporada Primavera 26.</b><br>→ Listado por artículo con sus unidades.</div>
+<div class="q"><b>¿Qué chaquetas tenemos en catálogo?</b><br>→ Artículos cuyo nombre contiene "chaqueta".</div>
+
+<h3>🛍️ + 🗄️ Margen (cruzado)</h3>
+<div class="q"><b>¿Qué prendas dejaron más margen en junio de 2026?</b><br>→ Precio de venta real de Shopify − coste del ERP, con margen y margen %.</div>
+
+<h3>🗄️ Negocio B2B (ERP)</h3>
+<div class="q"><b>Lístame los pedidos a terceros de marzo de 2025.</b><br>→ Ventas mayoristas del ERP (con nombre de cliente).</div>
+
+<h2>6. Cómo leer las respuestas</h2>
+<ul>
+<li><b>Importes</b> en euros con formato europeo: <code>1.326,80 €</code>.</li>
+<li><b>Fechas</b> como <code>01/06/2026</code>; meses como <code>Junio 2026</code>.</li>
+<li><b>Fila TOTAL</b> al final de la tabla (no suma porcentajes ni medias, que no tendría sentido).</li>
+<li><b>Etiqueta de fuente</b> abajo: te confirma de qué sistema salió el dato.</li>
+</ul>
+
+<h2>7. Enseñar a Orus</h2>
+<p>Si alguna respuesta no es como esperáis, podéis corregirla en el propio chat (por ejemplo: "para las ventas, excluye también el pedido de muestra"). Orus guarda esa indicación y la aplica a partir de entonces para vuestro negocio. También se puede ajustar la <b>guía</b> desde el panel de administración.</p>
+
+<h2>8. Estado actual y próximos pasos</h2>
+<table>
+<tr><th>Función</th><th>Estado</th></tr>
+<tr><td>Ventas, pedidos, facturación, ticket medio (Shopify Nacional)</td><td>✅ Operativo</td></tr>
+<tr><td>Mejores clientes y prendas más vendidas</td><td>✅ Operativo</td></tr>
+<tr><td>Cambios / devoluciones</td><td>✅ Operativo</td></tr>
+<tr><td>Stock, catálogo, temporadas, coste (ERP)</td><td>✅ Operativo</td></tr>
+<tr><td>Margen (Shopify × ERP)</td><td>✅ Operativo</td></tr>
+<tr><td>Tienda Shopify <b>Internacional</b></td><td>⏳ Pendiente de credenciales</td></tr>
+<tr><td>Visitas web (Google Analytics) y campañas (Meta Ads)</td><td>⏳ Fases posteriores</td></tr>
+</table>
+
+<div class="warn">
+<b>Nota.</b> Mientras no se conecte la tienda Shopify Internacional, las cifras de ventas corresponden a la tienda Nacional (España y Portugal, e incluye los pedidos en tienda física de Claudio Coello). Orus lo indica si se le pregunta por ventas internacionales.
+</div>
+
+<p style="margin-top:24pt; color:#94a3b8; font-size:9pt;">Manual de uso · Orus by TEC · The Extreme Collection.</p>
+
+</body>
+</html>

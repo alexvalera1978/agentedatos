@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Orus · Documentación técnica y funcional</title>
+<style>
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.5; }
+  h1 { color: #0b1220; font-size: 24pt; margin-bottom: 2pt; }
+  h2 { color: #1d4ed8; font-size: 16pt; border-bottom: 2px solid #dbeafe; padding-bottom: 3pt; margin-top: 22pt; }
+  h3 { color: #0b1220; font-size: 12.5pt; margin-top: 14pt; }
+  .sub { color: #6b7280; font-size: 11pt; margin-top: 0; }
+  .tag { display: inline-block; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 1px 7px; font-size: 9pt; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10pt; }
+  th { background: #0b1220; color: #fff; text-align: left; padding: 6px 8px; }
+  td { border: 1px solid #e5e7eb; padding: 6px 8px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  code, .mono { font-family: Consolas, 'Courier New', monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 9.5pt; }
+  .callout { background: #f0f9ff; border-left: 4px solid #38bdf8; padding: 8px 12px; margin: 10pt 0; }
+  .warn { background: #fff7ed; border-left: 4px solid #f59e0b; padding: 8px 12px; margin: 10pt 0; }
+  ul { margin: 4pt 0; }
+  .cover { color: #64748b; }
+  .green { color: #166534; font-weight: 600; }
+  .blue { color: #1e40af; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Orus <span class="cover">by TEC</span></h1>
+<p class="sub">Documentación técnica y funcional del agente de datos · Documento interno</p>
+<hr>
+
+<h2>1. Qué es Orus</h2>
+<p><b>Orus</b> es un <b>agente de datos de negocio</b> que responde en lenguaje natural a preguntas sobre los datos de una empresa (ventas, stock, clientes, márgenes, etc.). El usuario escribe una pregunta como lo haría a una persona ("¿cuánto hemos vendido en junio?") y Orus consulta las fuentes de datos reales, calcula la respuesta y la presenta con un <b>texto resumen</b>, una <b>tabla</b> y, si procede, un <b>gráfico</b>.</p>
+<p>Está diseñada como plataforma <b>multi-cliente</b> y <b>multi-fuente</b>: la misma aplicación sirve a distintos clientes, cada uno con sus propios orígenes de datos (un ERP, una tienda Shopify, un Excel…) y sus propias reglas de negocio, <b>sin tocar el código</b>.</p>
+
+<div class="callout">
+<b>Idea clave.</b> Orus no tiene las tablas ni las reglas "cableadas" en el programa. Cada cliente se configura como <b>datos</b> (a qué se conecta) más una <b>guía</b> (cómo interpretar sus datos). Así, dar de alta un cliente nuevo es configurarlo, no programarlo.
+</div>
+
+<h2>2. Arquitectura general</h2>
+<p>La aplicación tiene tres capas y un motor de inteligencia:</p>
+<table>
+<tr><th>Capa</th><th>Tecnología</th><th>Función</th></tr>
+<tr><td><b>Frontend</b> (interfaz)</td><td>React + Vite</td><td>El <b>chat</b> donde se pregunta y el <b>panel de administración</b> donde se dan de alta clientes y fuentes.</td></tr>
+<tr><td><b>Backend</b> (servidor)</td><td>Node.js + Express</td><td>La API, el motor del agente y los conectores a las fuentes de datos.</td></tr>
+<tr><td><b>Inteligencia</b> (LLM)</td><td>OpenAI (GPT‑4o)</td><td>Interpreta la pregunta y decide qué datos consultar mediante "herramientas" (tool‑calling).</td></tr>
+<tr><td><b>Conectores</b></td><td>Módulos reutilizables</td><td>Un conector por tipo de origen: ERP, Shopify, Excel, REST, SQL. El mismo conector sirve a cualquier cliente de ese tipo.</td></tr>
+</table>
+
+<h3>Flujo de una pregunta (paso a paso)</h3>
+<ol>
+<li>El usuario escribe la pregunta en el chat y elige el cliente activo.</li>
+<li>El backend carga la <b>configuración de ese cliente</b> (sus fuentes + su guía).</li>
+<li>El <b>LLM</b> recibe la pregunta + las reglas (prompt general + guía del cliente) y decide qué <b>herramientas</b> usar.</li>
+<li>Las herramientas consultan las <b>fuentes reales</b> (ERP, Shopify…) y devuelven datos.</li>
+<li>El LLM redacta el <b>texto resumen</b>; el frontend muestra la <b>tabla</b>, el <b>gráfico</b> y la <b>etiqueta de fuente</b>.</li>
+</ol>
+
+<h2>3. Multi-cliente (multi-tenant)</h2>
+<p>Cada cliente es un <b>"tenant"</b>: una configuración independiente con sus fuentes, su guía y sus opciones. Los tenants están <b>aislados</b> entre sí — cada cliente solo ve sus propios datos.</p>
+<p>Cada tenant se guarda como un archivo de datos (JSON), no como código. Esto permite crear o editar un cliente <b>en caliente</b>, desde el panel, sin reprogramar ni redesplegar.</p>
+<table>
+<tr><th>Concepto</th><th>Dónde vive</th></tr>
+<tr><td>Configuración de cada cliente (fuentes, guía, opciones)</td><td><code>server/data/tenants/&lt;id&gt;.json</code></td></tr>
+<tr><td>Alta / edición / borrado de clientes y fuentes</td><td><code>server/onboarding/onboarding.js</code> + panel de administración</td></tr>
+<tr><td>Construcción del "cliente ejecutable" en runtime</td><td><code>server/tenants/registry.js</code> y <code>server/runtime/client-runtime.js</code></td></tr>
+</table>
+
+<h3>Estructura de la configuración de un cliente</h3>
+<table>
+<tr><th>Campo</th><th>Contenido</th></tr>
+<tr><td><code>tenant</code></td><td>Datos del cliente (id, nombre, negocio, moneda).</td></tr>
+<tr><td><code>sources</code></td><td>Lista de <b>fuentes de datos</b> (puede haber varias: ERP + Shopify…). Cada una con su tipo y su configuración de conexión.</td></tr>
+<tr><td><code>prompt</code></td><td>La <b>guía del agente</b> para este cliente: sus reglas de negocio.</td></tr>
+<tr><td><code>charts</code></td><td>Si se muestran gráficos automáticos.</td></tr>
+</table>
+
+<h2>4. Los dos niveles de "prompt" (instrucciones)</h2>
+<p>Orus combina <b>dos capas de instrucciones</b> en cada pregunta:</p>
+
+<h3>a) Prompt general (fijo, igual para todos los clientes)</h3>
+<p>Son las reglas de comportamiento globales, escritas en el código. Definen <b>cómo</b> responde el agente independientemente del cliente: responder en español, no inventar cifras, usar nombres y no códigos, formato de euros europeo, no negarse a consultar por fechas recientes, aplicar filtros de forma consistente, evitar filas duplicadas, etc.</p>
+<p><span class="tag">Dónde</span> <code>server/llm/openai-agent.js</code> → función <code>systemPrompt(...)</code>.</p>
+
+<h3>b) Guía por cliente (editable por cada cliente)</h3>
+<p>Son las <b>reglas de negocio específicas</b> de cada cliente: qué tablas usar, cómo se relacionan, qué excluir, qué fuente usar para cada tipo de pregunta. Se edita desde el panel, sin tocar código.</p>
+<p><span class="tag">Dónde</span> campo <code>prompt</code> del tenant (<code>server/data/tenants/&lt;id&gt;.json</code>), editable en el panel de administración. Para el cliente actual, el texto de referencia está en <code>scripts/guide-smt2.txt</code>.</p>
+
+<div class="callout">
+<b>Regla de reparto.</b> La <b>configuración de la fuente</b> dice <u>dónde</u> están los datos (URL, credenciales, tablas). La <b>guía</b> dice <u>cuándo</u> usar cada fuente y <u>cómo</u> combinarlas. Con esto, un mismo motor sirve a cualquier cliente.
+</div>
+
+<h2>5. Herramientas del agente (tool-calling)</h2>
+<p>El LLM no accede a los datos directamente: usa <b>herramientas</b> que el backend le ofrece. Elige cuáles llamar según la pregunta. Las herramientas disponibles dependen de las fuentes que tenga el cliente.</p>
+<p><span class="tag">Dónde</span> <code>server/llm/tools.js</code>.</p>
+<table>
+<tr><th>Herramienta</th><th>Para qué sirve</th><th>Requiere</th></tr>
+<tr><td><code>listar_recursos</code></td><td>Ver qué fuentes y entidades tiene el cliente.</td><td>—</td></tr>
+<tr><td><code>consultar</code></td><td>Leer filas de un recurso.</td><td>Cualquier fuente</td></tr>
+<tr><td><code>contar</code></td><td>Contar registros (¿cuántos pedidos/clientes hay?).</td><td>Fuente que sepa contar</td></tr>
+<tr><td><code>listar_tablas</code> / <code>describir_tabla</code> / <code>ejecutar_sql</code></td><td>Descubrir tablas/columnas reales y ejecutar consultas SQL de <b>solo lectura</b> sobre el ERP.</td><td>Fuente SQL/ERP</td></tr>
+<tr><td><code>ventas_shopify</code></td><td>Ventas B2C desde Shopify (suma canales, excluye devoluciones, hora España).</td><td>Fuente Shopify</td></tr>
+<tr><td><code>mejores_clientes_shopify</code></td><td>Ranking de clientes finales (excluye estilistas/cesiones).</td><td>Fuente Shopify</td></tr>
+<tr><td><code>productos_mas_vendidos_shopify</code></td><td>Prendas más vendidas por unidades o importe.</td><td>Fuente Shopify</td></tr>
+<tr><td><code>margen_productos</code></td><td>Margen real: precio de venta de Shopify − coste del ERP.</td><td>Shopify <b>y</b> ERP</td></tr>
+<tr><td><code>recordar</code></td><td>Guarda una corrección/aprendizaje en la guía del cliente.</td><td>—</td></tr>
+</table>
+
+<h2>6. Conectores de datos</h2>
+<p>Un conector encapsula "cómo se habla" con un tipo de origen. Son reutilizables: el mismo conector de Shopify sirve a cualquier cliente con Shopify; solo cambian dominio y token en su configuración.</p>
+<table>
+<tr><th>Conector</th><th>Origen</th><th>Archivo</th></tr>
+<tr><td>ERP GlobalApi</td><td>SQL Server vía HTTP (SQL sobre API con cabecera de clave)</td><td><code>server/connectors/globalapi-connector.js</code></td></tr>
+<tr><td>Shopify</td><td>Shopify Admin API (pedidos, productos, clientes)</td><td><code>server/connectors/shopify-connector.js</code></td></tr>
+<tr><td>Excel / CSV</td><td>Archivos subidos</td><td><code>server/connectors/file-connector.js</code></td></tr>
+<tr><td>REST / SQL</td><td>APIs genéricas / bases PostgreSQL</td><td><code>server/connectors/rest-connector.js</code>, <code>sql-connector.js</code></td></tr>
+</table>
+
+<h2>7. Funciones destacadas</h2>
+<ul>
+<li><b>Gráficos automáticos.</b> Cuando el cliente lo tiene activado, elige el gráfico que mejor encaja (líneas para evolución temporal, barras/horizontales para rankings, tarta para pocas categorías, comparativa para dos años). <span class="tag">Dónde</span> <code>client/src/Chart.jsx</code>.</li>
+<li><b>Memoria de conversación.</b> Recuerda los últimos intercambios para preguntas de seguimiento ("¿y por meses?").</li>
+<li><b>Aprendizaje ("recordar").</b> Cuando le corriges algo reutilizable, lo guarda en la guía de ese cliente para el futuro.</li>
+<li><b>Etiqueta de fuente.</b> Cada respuesta muestra de dónde salieron los datos: <span class="green">🛍️ Shopify</span> o <span class="blue">🗄️ ERP</span> (o ambas en consultas cruzadas), y si respondió la IA.</li>
+<li><b>Formato europeo.</b> Importes en euros (1.326,80 €), fechas dd/mm/aaaa, meses con nombre.</li>
+</ul>
+
+<h2>8. Panel de administración</h2>
+<p>Permite gestionar todo sin tocar código:</p>
+<ul>
+<li>Crear clientes.</li>
+<li>Conectar <b>varias fuentes</b> por cliente (añadir, editar, borrar): ERP, Shopify, Excel…</li>
+<li>Auto-descubrir tablas/columnas y (opcional) emparejar campos.</li>
+<li>Escribir la <b>guía del agente</b> (las reglas de negocio).</li>
+<li>Activar los gráficos.</li>
+</ul>
+<p><span class="tag">Dónde</span> <code>client/src/Admin.jsx</code>.</p>
+
+<h2>9. Despliegue y entornos</h2>
+<table>
+<tr><th>Entorno</th><th>Uso</th></tr>
+<tr><td><b>Desarrollo</b></td><td>Donde se programan y prueban los cambios.</td></tr>
+<tr><td><b>Producción</b></td><td>Donde el cliente usa la aplicación (expuesta por ngrok mientras no haya dominio propio).</td></tr>
+</table>
+<p>El código se sincroniza entre entornos mediante <b>Git</b>: se sube desde desarrollo (<code>git push</code>) y se baja en producción (<code>git pull</code>). El arranque unificado (<code>npm start</code>) compila el frontend y sirve la interfaz y la API desde un único puerto.</p>
+
+<h2>10. Seguridad</h2>
+<ul>
+<li><b>Secretos fuera del código.</b> Claves de OpenAI, ERP y Shopify viven en un archivo <code>.env</code> local (no se sube a Git). En la configuración de cada cliente se referencian como variables, nunca en texto plano.</li>
+<li><b>SQL de solo lectura.</b> El agente solo puede ejecutar consultas <code>SELECT</code>; se bloquea cualquier escritura o borrado.</li>
+<li><b>Aislamiento por cliente.</b> Cada tenant accede únicamente a sus fuentes.</li>
+</ul>
+
+<h2>11. Mapa de archivos (resumen)</h2>
+<table>
+<tr><th>Archivo / carpeta</th><th>Qué contiene</th></tr>
+<tr><td><code>client/src/App.jsx</code></td><td>Chat (interfaz principal).</td></tr>
+<tr><td><code>client/src/Admin.jsx</code></td><td>Panel de administración.</td></tr>
+<tr><td><code>client/src/Chart.jsx</code></td><td>Gráficos automáticos.</td></tr>
+<tr><td><code>server/index.js</code></td><td>API + servido del frontend.</td></tr>
+<tr><td><code>server/agent.js</code></td><td>Motor: decide IA o modo básico y orquesta la respuesta.</td></tr>
+<tr><td><code>server/llm/openai-agent.js</code></td><td><b>Prompt general</b> + bucle de tool-calling con OpenAI.</td></tr>
+<tr><td><code>server/llm/tools.js</code></td><td>Definición de las <b>herramientas</b> del agente.</td></tr>
+<tr><td><code>server/connectors/*.js</code></td><td>Conectores por tipo de fuente.</td></tr>
+<tr><td><code>server/onboarding/onboarding.js</code></td><td>Alta/edición de clientes y fuentes.</td></tr>
+<tr><td><code>server/data/tenants/*.json</code></td><td><b>Configuración de cada cliente</b> (fuentes + guía).</td></tr>
+<tr><td><code>scripts/guide-smt2.txt</code></td><td>Guía de referencia del cliente actual.</td></tr>
+</table>
+
+<p style="margin-top:24pt; color:#94a3b8; font-size:9pt;">Documento generado para presentación. Orus by TEC.</p>
+
+</body>
+</html>

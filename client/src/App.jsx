@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import Admin from './Admin';
 import Chart from './Chart';
 
-const BRAND = 'Encarna';
+const BRAND = 'Orus';
 const BRAND_SUB = 'by TEC';
 
 const SOURCE_LABELS = { globalapi: 'ERP', erp: 'ERP', shopify: 'Shopify', sql: 'SQL', rest: 'REST', excel: 'Excel' };
