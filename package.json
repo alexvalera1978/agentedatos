@@ -1,0 +1,27 @@
+{
+  "name": "agentedatos",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "dev:server": "node scripts/free-port.js && node --env-file-if-exists=.env server/index.js",
+    "dev:client": "vite --config client/vite.config.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build --config client/vite.config.js",
+    "start": "npm run build && node scripts/free-port.js && node --env-file-if-exists=.env server/index.js"
+  },
+  "dependencies": {
+    "concurrently": "^9.0.1",
+    "cors": "^2.8.0",
+    "express": "^4.19.0",
+    "openai": "^6.45.0",
+    "recharts": "^3.9.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.10"
+  }
+}

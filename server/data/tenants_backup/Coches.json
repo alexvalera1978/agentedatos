@@ -1,0 +1,13 @@
+{
+  "tenant": {
+    "id": "Coches",
+    "name": "Coches.net",
+    "business": "Venta de Coches",
+    "language": "es",
+    "currency": "EUR"
+  },
+  "sources": [],
+  "mappings": [],
+  "tools": [],
+  "prompt": "Responde como un agente de negocio."
+}

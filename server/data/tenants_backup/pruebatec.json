@@ -1,0 +1,34 @@
+{
+  "tenant": {
+    "id": "pruebatec",
+    "name": "The Extreme Collection (Shopify)",
+    "business": "retail / e-commerce de moda",
+    "language": "es",
+    "currency": "EUR"
+  },
+  "sources": [
+    {
+      "id": "shopify-tec",
+      "kind": "shopify",
+      "name": "Tienda Shopify TEC",
+      "config": {
+        "domain": "pruebatec-7147.myshopify.com",
+        "accessToken": "${SHOPIFY_ACCESS_TOKEN}",
+        "apiVersion": "2024-10",
+        "resources": ["orders", "products", "customers"],
+        "fields": {
+          "orders": "name,total_price,currency,created_at,financial_status,fulfillment_status,email",
+          "products": "id,title,vendor,product_type,status,created_at",
+          "customers": "id,first_name,last_name,email,orders_count,total_spent,city"
+        }
+      }
+    }
+  ],
+  "mappings": [
+    { "source": "orders", "target": "orders" },
+    { "source": "products", "target": "products" },
+    { "source": "customers", "target": "customers" }
+  ],
+  "tools": [{ "name": "query_data" }],
+  "prompt": "Responde como un agente de negocio para la tienda online (Shopify) de retail de moda. Recursos disponibles: orders (pedidos), products (productos), customers (clientes). Para contar totales usa la herramienta contar. Para importes de pedido usa total_price; para gasto de cliente usa total_spent y número de pedidos orders_count."
+}

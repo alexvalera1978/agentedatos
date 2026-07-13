@@ -1,0 +1,34 @@
+{
+  "tenant": {
+    "id": "acme",
+    "name": "ACME Retail",
+    "business": "retail",
+    "language": "es",
+    "currency": "EUR"
+  },
+  "sources": [
+    {
+      "id": "sql-acme",
+      "kind": "sql",
+      "name": "BD ACME (SQL)",
+      "config": {
+        "connectionString": "${ACME_DB_URL}",
+        "useSampleData": true
+      }
+    }
+  ],
+  "mappings": [
+    {
+      "source": "ventas",
+      "target": "orders",
+      "fields": { "id": "id_venta", "customer": "cliente", "amount": "importe", "date": "fecha" }
+    },
+    {
+      "source": "articulos",
+      "target": "products",
+      "fields": { "id": "sku", "name": "descripcion", "amount": "precio" }
+    }
+  ],
+  "tools": [{ "name": "query_data" }],
+  "prompt": "Responde como un agente de negocio para retail ACME."
+}

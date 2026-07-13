@@ -1,0 +1,32 @@
+{
+  "tenant": {
+    "id": "demo",
+    "name": "Demo Tenant",
+    "business": "retail",
+    "language": "es",
+    "currency": "EUR"
+  },
+  "sources": [
+    {
+      "id": "shopify-demo",
+      "kind": "shopify",
+      "name": "Shopify Demo",
+      "config": {
+        "domain": "demo-shop.myshopify.com",
+        "apiKey": "${DEMO_SHOPIFY_TOKEN}",
+        "resources": ["orders", "products", "inventory", "customers"]
+      }
+    }
+  ],
+  "mappings": [
+    { "source": "orders", "target": "orders" },
+    { "source": "inventory", "target": "inventory" },
+    { "source": "products", "target": "products" },
+    { "source": "customers", "target": "customers" }
+  ],
+  "tools": [
+    { "name": "query_data" },
+    { "name": "get_metrics" }
+  ],
+  "prompt": "Responde como un agente de negocio para retail."
+}

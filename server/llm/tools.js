@@ -1,0 +1,417 @@
+// Herramientas GENÉRICAS que el LLM puede invocar. No dependen del negocio:
+// el mismo conjunto sirve para cualquier tenant. Lo específico vive en la config.
+
+// Solo permitimos SELECT de lectura. Bloqueamos escrituras y multi-sentencia.
+function isReadOnlySelect(sql) {
+  const s = String(sql || '').trim().replace(/;+\s*$/, '');
+  if (!s) return false;
+  if (s.includes(';')) return false; // nada de múltiples sentencias
+  if (!/^\s*(select|with)\b/i.test(s)) return false;
+  if (/\b(insert|update|delete|drop|alter|truncate|create|exec|execute|merge|grant|revoke|into|sp_|xp_)\b/i.test(s)) {
+    return false;
+  }
+  return true;
+}
+
+function findSqlConnector(runtime) {
+  return (runtime.connectors || []).find(
+    (c) => typeof c.executeSql === 'function' && (c.configured ? c.configured() : true)
+  );
+}
+
+function findSalesConnector(runtime) {
+  return (runtime.connectors || []).find(
+    (c) => typeof c.salesSummary === 'function' && (c.configured ? c.configured() : true)
+  );
+}
+
+// Construye las definiciones de herramientas para la API de OpenAI, según lo que
+// el tenant tenga configurado.
+function buildToolDefinitions(runtime) {
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name: 'listar_recursos',
+        description:
+          'Lista las fuentes de datos del cliente y los recursos/entidades disponibles (p. ej. inventory, products, customers, orders). Úsala primero si no sabes qué datos hay.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar',
+        description:
+          'Consulta un recurso/entidad ya configurado del cliente y devuelve sus filas. El "recurso" debe ser uno de los que devuelve listar_recursos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            recurso: { type: 'string', description: 'Nombre del recurso a consultar' },
+            limite: { type: 'integer', description: 'Máximo de filas a traer (opcional)' }
+          },
+          required: ['recurso'],
+          additionalProperties: false
+        }
+      }
+    }
+  ];
+
+  // El agente puede guardar pistas/correcciones duraderas que le enseñe el usuario.
+  tools.push({
+    type: 'function',
+    function: {
+      name: 'recordar',
+      description:
+        'Guarda una PISTA o CORRECCIÓN duradera sobre este cliente para futuras conversaciones: dónde está un dato, cómo se relacionan dos tablas, o una regla de negocio. Úsala cuando el usuario te ENSEÑE o CORRIJA algo reutilizable (ej.: "los precios están en la tabla X unida por Y", "excluye el cliente Z", "las camisas tienen TIPO_PRENDA=CAM"). NO la uses para datos concretos ni para una pregunta puntual.',
+      parameters: {
+        type: 'object',
+        properties: { pista: { type: 'string', description: 'La pista concisa a recordar, en una frase.' } },
+        required: ['pista'],
+        additionalProperties: false
+      }
+    }
+  });
+
+  // Herramienta de conteo, solo si algún conector sabe contar (p. ej. Shopify /count.json).
+  if ((runtime.connectors || []).some((c) => typeof c.count === 'function')) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'contar',
+        description:
+          'Devuelve el número TOTAL de registros de un recurso (p. ej. cuántos pedidos, clientes o productos hay). Úsala para "¿cuántos X hay?" en lugar de traer todas las filas.',
+        parameters: {
+          type: 'object',
+          properties: {
+            recurso: { type: 'string', description: 'Nombre del recurso a contar' }
+          },
+          required: ['recurso'],
+          additionalProperties: false
+        }
+      }
+    });
+  }
+
+  // Ventas B2C desde Shopify (Orders), solo si hay una tienda Shopify configurada.
+  if (findSalesConnector(runtime)) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'ventas_shopify',
+        description:
+          'Calcula las VENTAS a cliente final (B2C) desde los pedidos (Orders) de Shopify, NO desde Analytics. Suma los canales de venta (Online Store "web" + POS + Draft Orders) y EXCLUYE el canal iF Returns (cambios). Úsala para ventas, ingresos, facturación, ticket medio y su evolución por día o mes. Las fechas son AAAA-MM-DD en hora de España (Europe/Madrid). Devuelve por grupo: pedidos, subtotal, impuestos y total (en euros).',
+        parameters: {
+          type: 'object',
+          properties: {
+            desde: { type: 'string', description: 'Fecha inicio AAAA-MM-DD (incluida), hora España' },
+            hasta: { type: 'string', description: 'Fecha fin AAAA-MM-DD (incluida), hora España' },
+            agrupar: { type: 'string', enum: ['dia', 'mes', 'canal', 'ninguno'], description: 'Cómo desglosar el resultado (por defecto ninguno = un único total)' },
+            canal: { type: 'string', enum: ['ventas', 'cambios'], description: '"ventas" = venta facturable (por defecto); "cambios" = solo el canal iF Returns' }
+          },
+          required: ['desde', 'hasta'],
+          additionalProperties: false
+        }
+      }
+    });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'mejores_clientes_shopify',
+        description:
+          'Devuelve los MEJORES CLIENTES a cliente final (B2C) por gasto en un periodo, desde Shopify. Excluye automáticamente estilistas/cesiones (préstamos de prenda, no ventas reales) e informa de cuántos excluyó. Fechas AAAA-MM-DD en hora España.',
+        parameters: {
+          type: 'object',
+          properties: {
+            desde: { type: 'string', description: 'Fecha inicio AAAA-MM-DD (incluida)' },
+            hasta: { type: 'string', description: 'Fecha fin AAAA-MM-DD (incluida)' },
+            limite: { type: 'integer', description: 'Cuántos clientes devolver (por defecto 10)' }
+          },
+          required: ['desde', 'hasta'],
+          additionalProperties: false
+        }
+      }
+    });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'productos_mas_vendidos_shopify',
+        description:
+          'Devuelve las PRENDAS/PRODUCTOS más vendidos a cliente final (B2C) en un periodo, desde las líneas de los pedidos de Shopify. Ordena por unidades o por importe. Puede filtrar por temporada (prefijo del SKU, p. ej. "24"). Fechas AAAA-MM-DD en hora España.',
+        parameters: {
+          type: 'object',
+          properties: {
+            desde: { type: 'string', description: 'Fecha inicio AAAA-MM-DD (incluida)' },
+            hasta: { type: 'string', description: 'Fecha fin AAAA-MM-DD (incluida)' },
+            ordenar_por: { type: 'string', enum: ['unidades', 'importe'], description: 'Criterio de ranking (por defecto unidades)' },
+            temporada: { type: 'string', description: 'Código de temporada para filtrar (opcional, p. ej. "24" o "25")' },
+            limite: { type: 'integer', description: 'Cuántos productos devolver (por defecto 10)' }
+          },
+          required: ['desde', 'hasta'],
+          additionalProperties: false
+        }
+      }
+    });
+  }
+
+  // Margen real por producto: cruza Shopify (precio de venta real) × ERP (coste tarifa 10).
+  // Solo si el cliente tiene AMBAS fuentes.
+  if (findSalesConnector(runtime) && findSqlConnector(runtime)) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'margen_productos',
+        description:
+          'Calcula el MARGEN REAL por producto cruzando el precio de venta real de Shopify (lo que paga el cliente, de las líneas de pedido) con el COSTE del ERP (tarifa "Venta Terceros Nacional", código 10). Úsala para "margen", "rentabilidad", "qué prendas dejan más margen". Este es el margen fiable (no uses el ERP solo). Fechas AAAA-MM-DD. Puede ordenar por margen/unidades/importe y filtrar por temporada.',
+        parameters: {
+          type: 'object',
+          properties: {
+            desde: { type: 'string', description: 'Fecha inicio AAAA-MM-DD (incluida)' },
+            hasta: { type: 'string', description: 'Fecha fin AAAA-MM-DD (incluida)' },
+            ordenar_por: { type: 'string', enum: ['margen', 'unidades', 'importe'], description: 'Criterio de ranking (por defecto margen)' },
+            temporada: { type: 'string', description: 'Código de temporada para filtrar (opcional, p. ej. "24")' },
+            limite: { type: 'integer', description: 'Cuántos productos devolver (por defecto 10)' }
+          },
+          required: ['desde', 'hasta'],
+          additionalProperties: false
+        }
+      }
+    });
+  }
+
+  if (findSqlConnector(runtime)) {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'listar_tablas',
+          description:
+            'Descubre las TABLAS REALES de la base de datos del ERP (SQL Server). Devuelve nombres de tabla. Filtra con un patrón (p. ej. "STOCK", "CLIENTE", "ARTICUL", "PEDIDO"). Úsala antes de escribir SQL para saber el nombre real de las tablas.',
+          parameters: {
+            type: 'object',
+            properties: {
+              patron: { type: 'string', description: 'Texto que debe contener el nombre de la tabla (opcional)' }
+            },
+            additionalProperties: false
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'describir_tabla',
+          description:
+            'Devuelve las COLUMNAS reales (nombre y tipo) de una tabla del ERP. Úsala antes de escribir SQL con esa tabla para conocer sus columnas exactas.',
+          parameters: {
+            type: 'object',
+            properties: {
+              tabla: { type: 'string', description: 'Nombre real de la tabla (de listar_tablas)' }
+            },
+            required: ['tabla'],
+            additionalProperties: false
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'ejecutar_sql',
+          description:
+            'Ejecuta una consulta SQL de SOLO LECTURA (SELECT) sobre la base de datos SQL Server del ERP y devuelve las filas. Úsala sobre TABLAS REALES (las de listar_tablas), NO sobre los nombres de recurso lógicos. Sintaxis T-SQL: usa TOP en vez de LIMIT. Prohibido modificar datos.',
+          parameters: {
+            type: 'object',
+            properties: {
+              sql: { type: 'string', description: 'Consulta SELECT en T-SQL (SQL Server)' }
+            },
+            required: ['sql'],
+            additionalProperties: false
+          }
+        }
+      }
+    );
+  }
+
+  return tools;
+}
+
+// Ejecuta una llamada a herramienta. `ctx` acumula filas obtenidas (para mostrarlas
+// en el frontend) y registra la fuente usada.
+async function runTool(runtime, name, args, ctx) {
+  if (name === 'listar_recursos') {
+    const fuentes = [];
+    for (const c of runtime.connectors || []) {
+      const recursos = (await c.listResources?.()) || [];
+      fuentes.push({ fuente: c.name, tipo: c.kind, recursos });
+    }
+    return { fuentes, mappings: runtime.mappings || [] };
+  }
+
+  if (name === 'consultar') {
+    const recurso = args.recurso;
+    const connector = await runtime.getConnectorForResource?.(recurso);
+    if (!connector) throw new Error(`No hay ninguna fuente con el recurso "${recurso}".`);
+    const limit = Math.min(Number(args.limite) || 20, 100);
+    const rows = await connector.runQuery(recurso, { limit });
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    // Nos quedamos con el conjunto MÁS GRANDE (no mezclar total + desglose).
+    const shaped = rows.slice(0, 100).map((r) => ({ entity: recurso, ...r }));
+    if (shaped.length > ctx.collected.length) ctx.collected = shaped;
+    return { recurso, filas: rows.length, muestra: rows.slice(0, 25) };
+  }
+
+  if (name === 'recordar') {
+    const store = require('../data/store');
+    const tid = runtime?.tenant?.id;
+    const pista = String(args.pista || '').trim();
+    if (!tid || !pista) throw new Error('No se pudo guardar la pista.');
+    const config = store.getTenantConfigRaw(tid);
+    if (config) {
+      config.prompt = (config.prompt ? `${config.prompt.trim()}\n` : '') + pista;
+      store.saveTenantConfig(config);
+    }
+    if (ctx) ctx.learned = true;
+    return { guardado: true, pista };
+  }
+
+  if (name === 'contar') {
+    const recurso = args.recurso;
+    const connector = (runtime.connectors || []).find((c) => typeof c.count === 'function');
+    if (!connector) throw new Error('Ninguna fuente de este cliente admite conteo directo.');
+    const total = await connector.count(recurso);
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    return { recurso, total };
+  }
+
+  if (name === 'ventas_shopify') {
+    const connector = findSalesConnector(runtime);
+    if (!connector) throw new Error('Este cliente no tiene una tienda Shopify conectada para ventas.');
+    const gb = { dia: 'dia', mes: 'mes', canal: 'canal', ninguno: 'none' }[args.agrupar] || 'none';
+    const summary = await connector.salesSummary({
+      from: args.desde,
+      to: args.hasta,
+      groupBy: gb,
+      channel: args.canal === 'cambios' ? 'cambios' : 'ventas'
+    });
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    const arr = (summary.filas || []).slice(0, 100);
+    if (arr.length > ctx.collected.length) ctx.collected = arr;
+    return summary;
+  }
+
+  if (name === 'mejores_clientes_shopify') {
+    const connector = findSalesConnector(runtime);
+    if (!connector || typeof connector.topCustomers !== 'function') throw new Error('Este cliente no tiene una tienda Shopify conectada.');
+    const summary = await connector.topCustomers({ from: args.desde, to: args.hasta, limit: Math.min(Number(args.limite) || 10, 50) });
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    const arr = summary.filas || [];
+    if (arr.length > ctx.collected.length) ctx.collected = arr;
+    return summary;
+  }
+
+  if (name === 'productos_mas_vendidos_shopify') {
+    const connector = findSalesConnector(runtime);
+    if (!connector || typeof connector.topProducts !== 'function') throw new Error('Este cliente no tiene una tienda Shopify conectada.');
+    const summary = await connector.topProducts({
+      from: args.desde,
+      to: args.hasta,
+      limit: Math.min(Number(args.limite) || 10, 50),
+      by: args.ordenar_por === 'importe' ? 'importe' : 'unidades',
+      temporada: args.temporada
+    });
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    const arr = summary.filas || [];
+    if (arr.length > ctx.collected.length) ctx.collected = arr;
+    return summary;
+  }
+
+  if (name === 'margen_productos') {
+    const shop = findSalesConnector(runtime);
+    const sql = findSqlConnector(runtime);
+    if (!shop || typeof shop.productSalesByArticle !== 'function') throw new Error('Este cliente no tiene Shopify para el precio de venta.');
+    if (!sql) throw new Error('Este cliente no tiene ERP para el coste.');
+    const ventas = await shop.productSalesByArticle({ from: args.desde, to: args.hasta, temporada: args.temporada });
+    if (ctx.sources) { ctx.sources.set(shop.name, shop.kind); ctx.sources.set(sql.name, sql.kind); }
+    ctx.usedDataSource = ctx.usedDataSource || shop.name;
+    if (!ventas.length) return { desde: args.desde, hasta: args.hasta, filas: [], nota: 'Sin ventas en el periodo.' };
+
+    // Costes desde el ERP (tarifa 10 = Venta Terceros Nacional), en una sola consulta.
+    const codes = [...new Set(ventas.map((v) => String(v.articulo).replace(/[^A-Za-z0-9]/g, '')).filter(Boolean))];
+    const inList = codes.map((c) => `'${c}'`).join(',');
+    const costeRows = await sql.executeSql(
+      `SELECT ARTICULO, MAX(PRECIO) AS coste FROM MAN_ARTICULOS_TARIFAS WHERE TIPO='C' AND CODIGO='10' AND ARTICULO IN (${inList}) GROUP BY ARTICULO`
+    );
+    const costeMap = new Map((costeRows || []).map((r) => [String(r.ARTICULO), Number(r.coste)]));
+
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const by = args.ordenar_por || 'margen';
+    let filas = ventas.map((v) => {
+      const coste = costeMap.get(String(v.articulo)) || 0;
+      const pv = v.precio_medio;
+      const ok = coste > 0 && pv > 0;
+      return {
+        producto: v.producto,
+        unidades: v.unidades,
+        precio_venta_medio: pv,
+        coste: coste > 0 ? coste : null,
+        margen: ok ? r2(pv - coste) : null,
+        margen_pct: ok ? r2(((pv - coste) / pv) * 100) : null
+      };
+    });
+    const sinCoste = filas.filter((f) => f.coste == null).length;
+    filas.sort((a, b) => {
+      if (by === 'unidades') return b.unidades - a.unidades;
+      if (by === 'importe') return b.precio_venta_medio * b.unidades - a.precio_venta_medio * a.unidades;
+      return (b.margen_pct ?? -1) - (a.margen_pct ?? -1); // margen: nulos al final
+    });
+    filas = filas.slice(0, Math.min(Number(args.limite) || 10, 50));
+    if (filas.length > ctx.collected.length) ctx.collected = filas;
+    return { desde: args.desde, hasta: args.hasta, temporada: args.temporada || null, ordenado_por: by, productos_sin_coste: sinCoste, filas };
+  }
+
+  if (name === 'listar_tablas') {
+    const connector = findSqlConnector(runtime);
+    if (!connector) throw new Error('Este cliente no tiene un ERP con acceso SQL.');
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    const p = String(args.patron || '').replace(/[^A-Za-z0-9_]/g, '');
+    // sysobjects (vista legacy) NO está bloqueada; information_schema/sys.tables sí.
+    const sql = `SELECT TOP 100 name FROM sysobjects WHERE xtype='U'${p ? ` AND name LIKE '%${p}%'` : ''} ORDER BY name`;
+    const rows = await connector.executeSql(sql);
+    return { tablas: (rows || []).map((r) => r.name) };
+  }
+
+  if (name === 'describir_tabla') {
+    const connector = findSqlConnector(runtime);
+    if (!connector) throw new Error('Este cliente no tiene un ERP con acceso SQL.');
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    const tabla = String(args.tabla || '').replace(/[^A-Za-z0-9_]/g, '');
+    if (!tabla) throw new Error('Falta el nombre de la tabla.');
+    // syscolumns (vista legacy) tampoco está bloqueada.
+    const sql = `SELECT c.name, TYPE_NAME(c.xtype) AS tipo FROM syscolumns c WHERE c.id = OBJECT_ID('${tabla}') ORDER BY c.colid`;
+    const rows = await connector.executeSql(sql);
+    return { tabla, columnas: rows || [] };
+  }
+
+  if (name === 'ejecutar_sql') {
+    if (!isReadOnlySelect(args.sql)) {
+      throw new Error('Solo se permiten consultas SELECT de lectura (sin INSERT/UPDATE/DELETE/DROP ni ";").');
+    }
+    const connector = findSqlConnector(runtime);
+    if (!connector) throw new Error('Este cliente no tiene un ERP con acceso SQL.');
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    const rows = await connector.executeSql(args.sql);
+    if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
+    ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    const arr = Array.isArray(rows) ? rows.slice(0, 100) : [];
+    if (arr.length > ctx.collected.length) ctx.collected = arr;
+    return { filas: Array.isArray(rows) ? rows.length : 0, muestra: (rows || []).slice(0, 50) };
+  }
+
+  throw new Error(`Herramienta desconocida: ${name}`);
+}
+
+module.exports = { buildToolDefinitions, runTool, isReadOnlySelect, findSqlConnector };

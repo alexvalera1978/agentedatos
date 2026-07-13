@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+dist/
+*.log
+npm-debug.log*
+
+# Archivos subidos por los clientes (Excel/CSV) y resultados de pruebas
+server/data/uploads/
+scripts/results*.json
+
+# Sistema
+.DS_Store
+Thumbs.db

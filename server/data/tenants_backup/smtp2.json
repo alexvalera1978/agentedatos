@@ -1,0 +1,58 @@
+{
+  "tenant": {
+    "id": "smtp2",
+    "name": "SMTP2",
+    "business": "Moda / operaciones",
+    "language": "es",
+    "currency": "EUR"
+  },
+  "sources": [
+    {
+      "id": "erp-smtp2",
+      "kind": "globalapi",
+      "name": "ERP SMTP2",
+      "config": {
+        "baseUrl": "https://stm2.theextremecollection.com/globalapi",
+        "apiKey": "${SMTP2_ERP_API_KEY}",
+        "apiKeyHeader": "X-Api-Key",
+        "queries": {
+          "inventory": "SELECT ARTICULO, COLOR, TALLA, ALMACEN, ENTRADA, SALIDA, (ENTRADA - SALIDA) AS DISPONIBLE FROM ALM_STOCK",
+          "products": "SELECT TOP 50 CODIGO, DESCRIPCION, TEMPORADA, FAMILIA FROM MAN_ARTICULOS ORDER BY ID DESC",
+          "customers": "SELECT TOP 50 CODIGO, DESCRIPCION, POBLACION, NIF FROM MAN_CLIENTES ORDER BY ID",
+          "orders": "SELECT TOP 50 PEDIDO, REFERENCIA_PEDIDO, FECHA, ESTADO, TOTAL, CLIENTE, E_NOMBRE, E_APELLIDOS, E_POBLACION FROM SHOP_PEDIDOS_CABECERAS WHERE FECHA >= DATEADD(month, -1, GETDATE()) ORDER BY FECHA DESC"
+        }
+      }
+    }
+  ],
+  "mappings": [
+    {
+      "source": "inventory",
+      "target": "inventory"
+    },
+    {
+      "source": "products",
+      "target": "products"
+    },
+    {
+      "source": "customers",
+      "target": "customers"
+    },
+    {
+      "source": "orders",
+      "target": "orders"
+    }
+  ],
+  "tools": [
+    {
+      "name": "erp_query_stock"
+    },
+    {
+      "name": "erp_query_articles"
+    },
+    {
+      "name": "erp_query_customers"
+    }
+  ],
+  "prompt": "Responde como un agente de negocio para moda y operaciones de SMTP2. La base de datos es un ERP de moda mayorista en SQL Server. Tablas reales principales: MAN_ARTICULOS (catálogo: CODIGO, DESCRIPCION, TEMPORADA, FAMILIA); MAN_CLIENTES (clientes: CODIGO, DESCRIPCION=nombre, POBLACION, NIF); ALM_STOCK (stock por artículo/color/talla: ARTICULO, COLOR, TALLA, ALMACEN, ENTRADA, SALIDA); ALB_ART_CABECERAS (VENTAS = albaranes de venta: CLIENTE, FECHA, VALOR=importe, CANT_PRENDAS, ALBARAN) con líneas en ALB_ART_LINEAS; ALB_PRE_CABECERAS (pedidos de venta). Para preguntas de VENTAS usa ALB_ART_CABECERAS (importe=VALOR, fecha=FECHA, el campo CLIENTE enlaza con MAN_CLIENTES.CODIGO). Las tablas SHOP_PEDIDOS_* (Shopify) están vacías; no las uses para ventas. REGLAS DE VENTAS: muestra el NOMBRE del cliente (MAN_CLIENTES.DESCRIPCION uniendo por CLIENTE=CODIGO), no el código. Los VALOR o cantidades negativas son devoluciones/abonos: sepáralos de las ventas o indícalo. IMPORTANTE: los albaranes cuya línea es el artículo 'ALB-PACKING', o los del cliente 001970 (THE EXTREME COLLECTION S.L., cuenta interna), son asientos de consolidación mayorista y NO son ventas reales a cliente: exclúyelos de totales, medias y rankings de clientes salvo que se pidan expresamente.",
+  "charts": false
+}
