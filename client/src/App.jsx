@@ -6,6 +6,15 @@ const BRAND = 'Encarna';
 const BRAND_SUB = 'by TEC';
 
 const SOURCE_LABELS = { globalapi: 'ERP', erp: 'ERP', shopify: 'Shopify', sql: 'SQL', rest: 'REST', excel: 'Excel' };
+// Estilo de etiqueta por tipo de fuente, para que se vea de un vistazo de dónde salió el dato.
+const SOURCE_BADGE = {
+  shopify: { icon: '🛍️', bg: '#dcfce7', fg: '#166534', bd: '#86efac' },
+  globalapi: { icon: '🗄️', bg: '#dbeafe', fg: '#1e40af', bd: '#93c5fd' },
+  erp: { icon: '🗄️', bg: '#dbeafe', fg: '#1e40af', bd: '#93c5fd' },
+  sql: { icon: '🗄️', bg: '#dbeafe', fg: '#1e40af', bd: '#93c5fd' },
+  rest: { icon: '🔌', bg: '#f3e8ff', fg: '#6b21a8', bd: '#d8b4fe' },
+  excel: { icon: '📄', bg: '#fef9c3', fg: '#854d0e', bd: '#fde68a' }
+};
 
 // ---- Formato de celdas (dinero €, fechas dd/mm/aaaa, números europeos) ----
 const MONEY_RE = /(importe|total|valor|amount|precio|coste|costo|ventas|price|gasto|monto|margen|iva|impuest)/i;
@@ -119,9 +128,19 @@ function AssistantMsg({ msg }) {
         {data && data.length > 0 && <DataTable data={data} />}
         {msg.charts && data && data.length > 0 && <Chart data={data} />}
         {(msg.sources?.length || msg.engine) && (
-          <div style={{ marginTop: '0.7rem', fontSize: '0.72rem', color: '#94a3b8' }}>
-            {msg.sources?.length ? `Fuentes: ${msg.sources.map((s) => `${s.name} (${SOURCE_LABELS[s.kind] || s.kind})`).join(', ')} · ` : ''}
-            {msg.engine === 'llm' ? 'IA (LLM)' : msg.engine === 'keyword' ? 'Palabras clave' : ''}
+          <div style={{ marginTop: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {(msg.sources || []).map((s, i) => {
+              const b = SOURCE_BADGE[s.kind] || { icon: '📦', bg: '#f1f5f9', fg: '#334155', bd: '#cbd5e1' };
+              return (
+                <span key={i} title={`Datos de: ${s.name} (${SOURCE_LABELS[s.kind] || s.kind})`}
+                  style={{ fontSize: '0.72rem', color: b.fg, background: b.bg, border: `1px solid ${b.bd}`, borderRadius: 8, padding: '0.12rem 0.5rem', fontWeight: 600 }}>
+                  {b.icon} {s.name}
+                </span>
+              );
+            })}
+            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+              {msg.engine === 'llm' ? '· IA' : msg.engine === 'keyword' ? '· ⚠️ palabras clave (IA no activa)' : ''}
+            </span>
           </div>
         )}
       </div>
