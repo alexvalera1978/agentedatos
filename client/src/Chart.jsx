@@ -5,7 +5,7 @@ import {
 
 const COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#14b8a6'];
 
-const numES = new Intl.NumberFormat('es-ES');
+const numES = new Intl.NumberFormat('es-ES', { useGrouping: 'always' });
 const fmtNum = (v) => (Number.isNaN(Number(v)) ? v : numES.format(Number(v)));
 const DIM_RE = /(^|[_\s])(mes|month|a[nñ]?o|anio|anyo|ano|year|dia|dias|day|semana|week|trimestre|quarter|periodo|hora)([_\s]|$)/i;
 const MES_RE = /(^|[_\s])(mes|month)([_\s]|$)/i;

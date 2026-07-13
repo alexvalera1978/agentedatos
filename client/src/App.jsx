@@ -26,8 +26,10 @@ const PCT_RE = /(pct|porcentaje|ratio|%)/i;
 // Columnas que son MEDIAS/PROMEDIOS (no se suman en el total: sumar una media no tiene sentido).
 const AVG_RE = /(medi[oa]|promedio|media)/i;
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-const numES = new Intl.NumberFormat('es-ES');
+// useGrouping:'always' fuerza el punto de millar también en 4 cifras (1.326 €); el
+// locale es-ES por defecto no lo pone en miles de 4 dígitos, pero en negocio se espera.
+const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
+const numES = new Intl.NumberFormat('es-ES', { useGrouping: 'always' });
 const pctFmt = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function fmtCell(key, value) {
   if (value === null || value === undefined) return '';
