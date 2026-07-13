@@ -21,9 +21,14 @@ const MONEY_RE = /(importe|total|valor|amount|precio|coste|costo|ventas|price|ga
 // Columnas que son DIMENSIONES (no se totalizan ni se tratan como valor numérico).
 const DIM_RE = /(^|[_\s])(mes|month|a[nñ]?o|anio|anyo|ano|year|dia|dias|day|semana|week|trimestre|quarter|periodo|hora)([_\s]|$)/i;
 const MES_RE = /(^|[_\s])(mes|month)([_\s]|$)/i;
+// Columnas que son PORCENTAJE (se muestran con %, y NO se suman en el total).
+const PCT_RE = /(pct|porcentaje|ratio|%)/i;
+// Columnas que son MEDIAS/PROMEDIOS (no se suman en el total: sumar una media no tiene sentido).
+const AVG_RE = /(medi[oa]|promedio|media)/i;
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const numES = new Intl.NumberFormat('es-ES');
+const pctFmt = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function fmtCell(key, value) {
   if (value === null || value === undefined) return '';
   const s = String(value);
@@ -37,6 +42,7 @@ function fmtCell(key, value) {
   const looksNumeric = /^-?\d+(\.\d+)?$/.test(s) && !/^0\d/.test(s);
   if (typeof value === 'number' || looksNumeric) {
     const n = Number(value);
+    if (PCT_RE.test(key)) return `${pctFmt.format(n)} %`; // porcentaje, no € (comprobar antes que dinero)
     if (MONEY_RE.test(key)) return eur.format(n);
     if (Math.abs(n) >= 1000 || !Number.isInteger(n)) return numES.format(n);
   }
@@ -53,7 +59,8 @@ function dedupeRows(data) {
 function totalsRow(data) {
   if (!data || data.length < 2) return null;
   const keys = Object.keys(data[0]);
-  const isNumericCol = (k) => k !== 'entity' && !DIM_RE.test(k)
+  // No se totalizan dimensiones, porcentajes ni medias (sumar un % o una media no tiene sentido).
+  const isNumericCol = (k) => k !== 'entity' && !DIM_RE.test(k) && !PCT_RE.test(k) && !AVG_RE.test(k)
     && data.some((r) => r[k] !== null && r[k] !== '')
     && data.every((r) => r[k] === null || r[k] === '' || (/^-?\d+(\.\d+)?$/.test(String(r[k])) && !/^0\d/.test(String(r[k]))));
   const numCols = keys.filter(isNumericCol);
