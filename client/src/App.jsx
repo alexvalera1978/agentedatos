@@ -20,6 +20,9 @@ function fmtCell(key, value) {
   const s = String(value);
   // Mes numérico → nombre del mes.
   if (MES_RE.test(key)) { const mi = Number(value); if (Number.isInteger(mi) && mi >= 1 && mi <= 12) return MESES[mi - 1]; }
+  // "2026-06" (año-mes) → "Junio 2026".
+  const ym = /^(\d{4})-(\d{2})$/.exec(s);
+  if (ym) { const mi = Number(ym[2]); if (mi >= 1 && mi <= 12) return `${MESES[mi - 1]} ${ym[1]}`; }
   const dm = /^(\d{4})-(\d{2})-(\d{2})([T ]|$)/.exec(s);
   if (dm) return `${dm[3]}/${dm[2]}/${dm[1]}`;
   const looksNumeric = /^-?\d+(\.\d+)?$/.test(s) && !/^0\d/.test(s);

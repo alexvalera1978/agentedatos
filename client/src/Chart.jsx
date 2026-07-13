@@ -12,15 +12,23 @@ const MES_RE = /(^|[_\s])(mes|month)([_\s]|$)/i;
 const FECHA_RE = /fecha|date/i;
 const MESES_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
-// Formatea una fecha ISO (2025-03-03T00:00:00) como dd/mm/aaaa.
+// Formatea una fecha ISO (2025-03-03T00:00:00) como dd/mm/aaaa, o un año-mes (2026-06) como "jun 2026".
 const fmtFecha = (v) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : v;
+  const s = String(v);
+  const d = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (d) return `${d[3]}/${d[2]}/${d[1]}`;
+  const ym = /^(\d{4})-(\d{2})$/.exec(s);
+  if (ym) { const mi = Number(ym[2]); if (mi >= 1 && mi <= 12) return `${MESES_ABBR[mi - 1]} ${ym[1]}`; }
+  return v;
 };
 
 // Devuelve el formateador del eje X según el tipo de columna.
 function axisFmt(key) {
-  if (MES_RE.test(key)) return (v) => (Number(v) >= 1 && Number(v) <= 12 ? MESES_ABBR[Number(v) - 1] : v);
+  if (MES_RE.test(key)) return (v) => {
+    const s = String(v);
+    if (/^\d{1,2}$/.test(s) && Number(s) >= 1 && Number(s) <= 12) return MESES_ABBR[Number(s) - 1];
+    return fmtFecha(v); // admite "2026-06"
+  };
   if (FECHA_RE.test(key)) return fmtFecha;
   return undefined;
 }

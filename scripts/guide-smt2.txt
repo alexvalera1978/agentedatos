@@ -11,6 +11,7 @@ ESTADO ACTUAL: la tienda Shopify NACIONAL (España+Portugal) YA está conectada.
 SHOPIFY — Ventas a cliente final (B2C)
 ============================
 - Para ventas, ingresos, facturación, ticket medio y su evolución por día o mes, usa SIEMPRE la herramienta ventas_shopify (desde, hasta en AAAA-MM-DD hora España; agrupar por dia/mes/canal). Ya suma los canales de venta (web + POS + Draft Orders), excluye iF Returns, aplica hora Europe/Madrid y devuelve pedidos, subtotal, impuestos y total. NO uses el ERP ni Shopify Analytics para esto.
+- DESGLOSE PARA LA TABLA/GRÁFICO: cuando te pidan las ventas de UN periodo (un mes, una semana, un año), no devuelvas una sola fila con el total: agrupa por 'dia' si el periodo es un mes o menos, o por 'mes' si abarca varios meses. Así la tabla y el gráfico son informativos. Da el total agregado en el texto.
 - Ticket medio = total / pedidos (del propio resultado de ventas_shopify).
 - Para "cambios", "devoluciones" o "exchanges" a cliente final, llama a ventas_shopify con canal='cambios' (canal iF Returns).
 - MEJORES CLIENTES (B2C): usa mejores_clientes_shopify. Ya excluye estilistas/cesiones (préstamos de prenda, no ventas); si excluyó alguno, menciónalo brevemente.
