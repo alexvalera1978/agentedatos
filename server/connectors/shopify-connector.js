@@ -18,6 +18,10 @@ const DEFAULT_SALES_CHANNELS = ['web', 'pos', 'shopify_draft_order'];
 // Canal iF Returns (cambios): NO es venta, solo mueve stock.
 const DEFAULT_RETURNS_CHANNEL = '29236166657';
 
+// Caché en memoria de pedidos por rango+campos (acelera preguntas seguidas del mismo periodo).
+const ORDERS_CACHE = new Map();
+const ORDERS_CACHE_TTL = 3 * 60 * 1000; // 3 minutos
+
 /**
  * Conector Shopify reutilizable (Admin REST API). Un mismo conector sirve a TODAS
  * las tiendas Shopify de cualquier cliente; solo cambian domain y accessToken en la
@@ -116,6 +120,13 @@ class ShopifyConnector extends ConnectorBase {
   async fetchOrders({ from, to, fields, maxPages = 40 } = {}) {
     if (this.usesSampleData()) return (SAMPLE.orders || []).map((r) => ({ ...r }));
     const flds = fields || 'id,name,created_at,source_name,financial_status,cancelled_at,currency,subtotal_price,total_tax,total_price,total_discounts';
+    // Caché de pedidos por rango+campos (evita repaginar en preguntas seguidas del mismo periodo).
+    const cacheKey = `${this.config.domain}|${from}|${to}|${flds}|${maxPages}`;
+    const cached = ORDERS_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.t < ORDERS_CACHE_TTL) {
+      this._truncated = cached.truncated;
+      return cached.data;
+    }
     let url = new URL(`${this.baseUrl()}/orders.json`);
     url.searchParams.set('status', 'any');
     url.searchParams.set('limit', '250');
@@ -137,6 +148,7 @@ class ShopifyConnector extends ConnectorBase {
       next = m ? new URL(m[1]) : null; // la URL "next" ya lleva page_info + limit
     }
     this._truncated = !!next; // había más páginas de las permitidas
+    ORDERS_CACHE.set(cacheKey, { t: Date.now(), data: out, truncated: this._truncated });
     return out;
   }
 

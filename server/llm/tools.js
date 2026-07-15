@@ -177,6 +177,25 @@ function buildToolDefinitions(runtime) {
         }
       }
     });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'prevision_stock',
+        description:
+          'PREVISIÓN / COBERTURA DE STOCK: cruza el stock actual del ERP con la velocidad de venta de Shopify (unidades vendidas al día en los últimos meses) para estimar CUÁNTO DURARÁ la mercancía y si es SUFICIENTE hasta una fecha. Úsala para "¿para cuánto tengo?", "¿tengo suficiente de X para acabar el año?", "¿qué se me va a agotar?". Devuelve por artículo: stock, unidades/día, días de cobertura, y si llega hasta la fecha objetivo.',
+        parameters: {
+          type: 'object',
+          properties: {
+            articulo: { type: 'string', description: 'Código o nombre de un artículo concreto (opcional; si se omite, lista los artículos que antes se agotarán)' },
+            temporada: { type: 'string', description: 'Código(s) de temporada, p. ej. "24" o "24,25" (opcional)' },
+            hasta: { type: 'string', description: 'Fecha objetivo AAAA-MM-DD hasta la que se quiere cubrir (opcional; por defecto, fin del año en curso)' },
+            dias_historico: { type: 'integer', description: 'Días de histórico de ventas para calcular la velocidad (opcional, por defecto 90)' },
+            limite: { type: 'integer', description: 'Cuántos artículos devolver (por defecto 15)' }
+          },
+          additionalProperties: false
+        }
+      }
+    });
   }
 
   if (findSqlConnector(runtime)) {
@@ -371,6 +390,62 @@ async function runTool(runtime, name, args, ctx) {
     filas = filas.slice(0, Math.min(Number(args.limite) || 10, 50));
     if (filas.length > ctx.collected.length) ctx.collected = filas;
     return { desde: args.desde, hasta: args.hasta, temporada: args.temporada || null, ordenado_por: by, productos_sin_coste: sinCoste, filas };
+  }
+
+  if (name === 'prevision_stock') {
+    const shop = findSalesConnector(runtime);
+    const sql = findSqlConnector(runtime);
+    if (!shop || typeof shop.productSalesByArticle !== 'function') throw new Error('Falta Shopify para la velocidad de venta.');
+    if (!sql) throw new Error('Falta el ERP para el stock.');
+    const dias = Math.max(7, Math.min(Number(args.dias_historico) || 90, 365));
+    const now = new Date();
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const to = iso(now);
+    const fromD = new Date(now); fromD.setUTCDate(fromD.getUTCDate() - dias);
+    const from = iso(fromD);
+
+    // Velocidad de venta (Shopify) y stock (ERP).
+    const ventas = await shop.productSalesByArticle({ from, to });
+    const ventasMap = new Map(ventas.map((v) => [String(v.articulo), v]));
+    const tFilter = args.temporada
+      ? ` AND TEMPORADA IN (${String(args.temporada).split(',').map((t) => `'${t.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`
+      : '';
+    const stockRows = await sql.executeSql(
+      `SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN ('000100','000004')${tFilter} GROUP BY ARTICULO HAVING SUM(ENTRADA-SALIDA) > 0`
+    );
+    if (ctx.sources) { ctx.sources.set(shop.name, shop.kind); ctx.sources.set(sql.name, sql.kind); }
+    ctx.usedDataSource = ctx.usedDataSource || sql.name;
+
+    const hasta = args.hasta || `${now.getUTCFullYear()}-12-31`;
+    const diasHasta = Math.max(0, Math.round((new Date(`${hasta}T00:00:00Z`) - now) / 86400000));
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const filtro = args.articulo ? String(args.articulo).toLowerCase() : null;
+
+    let filas = (stockRows || []).map((r) => {
+      const art = String(r.ARTICULO);
+      const v = ventasMap.get(art);
+      const stock = Number(r.stock);
+      const vendidos = v ? v.unidades : 0;
+      const porDia = vendidos / dias;
+      return {
+        producto: v ? v.producto : art,
+        articulo: art,
+        stock,
+        vendidos_ultimos_dias: vendidos,
+        unidades_dia: r1(porDia),
+        dias_cobertura: porDia > 0 ? Math.round(stock / porDia) : null,
+        necesita_hasta: Math.round(porDia * diasHasta),
+        suficiente: porDia > 0 ? (stock >= porDia * diasHasta ? 'sí' : 'no') : 'sin ventas'
+      };
+    });
+
+    if (filtro) filas = filas.filter((f) => f.articulo.toLowerCase().includes(filtro) || String(f.producto).toLowerCase().includes(filtro));
+    else filas = filas.filter((f) => f.unidades_dia > 0); // en general: solo lo que se vende (riesgo de agotarse)
+    filas.sort((a, b) => (a.dias_cobertura ?? 1e9) - (b.dias_cobertura ?? 1e9)); // lo que antes se agota, primero
+    filas = filas.slice(0, Math.min(Number(args.limite) || 15, 50));
+
+    if (filas.length > ctx.collected.length) ctx.collected = filas;
+    return { historico_desde: from, historico_hasta: to, horizonte: hasta, dias_hasta: diasHasta, dias_historico: dias, filas };
   }
 
   if (name === 'listar_tablas') {
