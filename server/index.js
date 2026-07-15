@@ -118,6 +118,7 @@ app.post('/api/agent/query', wrap(async (req, res) => {
     return res.status(404).json({ status: 'error', message: `Tenant no encontrado: ${tenantId}` });
   }
 
+  const t0 = Date.now();
   const response = await buildAgentResponse({
     tenantId,
     question,
@@ -126,6 +127,7 @@ app.post('/api/agent/query', wrap(async (req, res) => {
     runtime,
     history
   });
+  response.elapsedMs = Date.now() - t0; // tiempo de proceso en el servidor
   res.json(response);
 }));
 

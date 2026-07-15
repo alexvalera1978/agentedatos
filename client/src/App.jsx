@@ -31,6 +31,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
 const numES = new Intl.NumberFormat('es-ES', { useGrouping: 'always' });
 const pctFmt = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+// Tiempo de proceso: "850 ms" o "2,3 s".
+const fmtTime = (ms) => (ms == null || Number.isNaN(Number(ms)) ? '' : (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1).replace('.', ',')} s`));
 function fmtCell(key, value) {
   if (value === null || value === undefined) return '';
   const s = String(value);
@@ -136,7 +138,7 @@ function AssistantMsg({ msg }) {
         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: msg.status === 'error' ? '#991b1b' : '#0f172a' }}>{msg.text || '(sin respuesta)'}</div>
         {data && data.length > 0 && <DataTable data={data} />}
         {msg.charts && data && data.length > 0 && <Chart data={data} />}
-        {(msg.sources?.length || msg.engine) && (
+        {(msg.sources?.length || msg.engine || msg.elapsedMs != null) && (
           <div style={{ marginTop: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
             {(msg.sources || []).map((s, i) => {
               const b = SOURCE_BADGE[s.kind] || { icon: '📦', bg: '#f1f5f9', fg: '#334155', bd: '#cbd5e1' };
@@ -149,6 +151,7 @@ function AssistantMsg({ msg }) {
             })}
             <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
               {msg.engine === 'llm' ? '· IA' : msg.engine === 'keyword' ? '· ⚠️ palabras clave (IA no activa)' : ''}
+              {msg.elapsedMs != null && ` · ⏱ ${fmtTime(msg.elapsedMs)}`}
             </span>
           </div>
         )}
@@ -192,12 +195,14 @@ export default function App() {
     setMessages((m) => [...m, { role: 'user', text: q }]);
     setInput('');
     setLoading(true);
+    const t0 = Date.now();
     try {
       const res = await fetch('/api/agent/query', { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: JSON.stringify({ question: q, tenantId, history: hist }) });
       const text = await res.text();
       const data = text ? JSON.parse(text) : null;
       const r = data || { status: 'error', text: 'El servidor no respondió. ¿Está arrancado el backend (npm run dev)?' };
-      setMessages((m) => [...m, { role: 'assistant', text: r.text || r.message || '', data: r.data, sources: r.sources, engine: r.engine, charts: r.charts, status: r.status, learned: r.learned }]);
+      const elapsedMs = r.elapsedMs != null ? r.elapsedMs : Date.now() - t0;
+      setMessages((m) => [...m, { role: 'assistant', text: r.text || r.message || '', data: r.data, sources: r.sources, engine: r.engine, charts: r.charts, status: r.status, learned: r.learned, elapsedMs }]);
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: 'No se pudo contactar con el servidor: ' + e.message, status: 'error' }]);
     } finally { setLoading(false); }
