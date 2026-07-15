@@ -189,7 +189,9 @@ function buildToolDefinitions(runtime) {
             articulo: { type: 'string', description: 'Código o nombre de un artículo concreto (opcional; si se omite, lista los artículos que antes se agotarán)' },
             temporada: { type: 'string', description: 'Código(s) de temporada, p. ej. "24" o "24,25" (opcional)' },
             hasta: { type: 'string', description: 'Fecha objetivo AAAA-MM-DD hasta la que se quiere cubrir (opcional; por defecto, fin del año en curso)' },
-            dias_historico: { type: 'integer', description: 'Días de histórico de ventas para calcular la velocidad (opcional, por defecto 90)' },
+            dias_historico: { type: 'integer', description: 'Días recientes de ventas para calcular la velocidad (opcional, por defecto 90)' },
+            historico_desde: { type: 'string', description: 'Inicio AAAA-MM-DD de un periodo de referencia CONCRETO para la velocidad (p. ej. la misma campaña del año pasado). Si se da junto con historico_hasta, se usa este periodo en vez de los últimos N días.' },
+            historico_hasta: { type: 'string', description: 'Fin AAAA-MM-DD del periodo de referencia concreto para la velocidad.' },
             limite: { type: 'integer', description: 'Cuántos artículos devolver (por defecto 15)' }
           },
           additionalProperties: false
@@ -397,12 +399,20 @@ async function runTool(runtime, name, args, ctx) {
     const sql = findSqlConnector(runtime);
     if (!shop || typeof shop.productSalesByArticle !== 'function') throw new Error('Falta Shopify para la velocidad de venta.');
     if (!sql) throw new Error('Falta el ERP para el stock.');
-    const dias = Math.max(7, Math.min(Number(args.dias_historico) || 90, 365));
     const now = new Date();
     const iso = (d) => d.toISOString().slice(0, 10);
-    const to = iso(now);
-    const fromD = new Date(now); fromD.setUTCDate(fromD.getUTCDate() - dias);
-    const from = iso(fromD);
+    // Base de la velocidad de venta: periodo de referencia explícito, o últimos N días.
+    let from, to, dias;
+    if (args.historico_desde && args.historico_hasta) {
+      from = args.historico_desde; to = args.historico_hasta;
+      dias = Math.max(1, Math.round((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000) + 1);
+    } else {
+      dias = Math.max(7, Math.min(Number(args.dias_historico) || 90, 365));
+      to = iso(now);
+      const fromD = new Date(now); fromD.setUTCDate(fromD.getUTCDate() - dias);
+      from = iso(fromD);
+    }
+    const base = `venta media de ${from} a ${to} (${dias} días)`;
 
     // Velocidad de venta (Shopify) y stock (ERP).
     const ventas = await shop.productSalesByArticle({ from, to });
@@ -445,7 +455,7 @@ async function runTool(runtime, name, args, ctx) {
     filas = filas.slice(0, Math.min(Number(args.limite) || 15, 50));
 
     if (filas.length > ctx.collected.length) ctx.collected = filas;
-    return { historico_desde: from, historico_hasta: to, horizonte: hasta, dias_hasta: diasHasta, dias_historico: dias, filas };
+    return { base, historico_desde: from, historico_hasta: to, horizonte: hasta, dias_hasta: diasHasta, dias_historico: dias, filas };
   }
 
   if (name === 'listar_tablas') {
