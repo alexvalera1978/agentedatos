@@ -18,6 +18,8 @@ const SOURCE_BADGE = {
 
 // ---- Formato de celdas (dinero €, fechas dd/mm/aaaa, números europeos) ----
 const MONEY_RE = /(importe|total|valor|amount|precio|coste|costo|ventas|price|gasto|monto|margen|iva|impuest)/i;
+// Columnas de CANTIDAD (unidades, stock…): son números, NO euros — aunque el nombre lleve "total".
+const UNITS_RE = /(stock|unidad|cantidad|existencias|\buds\b|piezas|prendas|pedidos)/i;
 // Columnas que son DIMENSIONES (no se totalizan ni se tratan como valor numérico).
 const DIM_RE = /(^|[_\s])(mes|month|a[nñ]?o|anio|anyo|ano|year|dia|dias|day|semana|week|trimestre|quarter|periodo|hora)([_\s]|$)/i;
 const MES_RE = /(^|[_\s])(mes|month)([_\s]|$)/i;
@@ -47,6 +49,7 @@ function fmtCell(key, value) {
   if (typeof value === 'number' || looksNumeric) {
     const n = Number(value);
     if (PCT_RE.test(key)) return `${pctFmt.format(n)} %`; // porcentaje, no € (comprobar antes que dinero)
+    if (UNITS_RE.test(key)) return numES.format(n); // cantidad (unidades), no € (antes que dinero)
     if (MONEY_RE.test(key)) return eur.format(n);
     if (Math.abs(n) >= 1000 || !Number.isInteger(n)) return numES.format(n);
   }

@@ -252,6 +252,26 @@ function buildToolDefinitions(runtime) {
     );
   }
 
+  // Coste y PVP de un artículo concreto (ERP + fallback de PVP a Shopify), si hay ERP.
+  if (findSqlConnector(runtime)) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'precio_producto',
+        description:
+          'Devuelve el COSTE y el PVP de un artículo (buscando por código o por nombre). El coste es la tarifa "Venta Terceros Nacional" del ERP; el PVP es la tarifa del ERP y, si el ERP no la tiene, el precio REAL de venta en Shopify. Úsala para "¿qué coste/PVP tiene [producto]?". Requiere que el usuario indique un producto concreto.',
+        parameters: {
+          type: 'object',
+          properties: {
+            articulo: { type: 'string', description: 'Código exacto o parte del nombre del artículo' }
+          },
+          required: ['articulo'],
+          additionalProperties: false
+        }
+      }
+    });
+  }
+
   return tools;
 }
 
@@ -392,6 +412,51 @@ async function runTool(runtime, name, args, ctx) {
     filas = filas.slice(0, Math.min(Number(args.limite) || 10, 50));
     if (filas.length > ctx.collected.length) ctx.collected = filas;
     return { desde: args.desde, hasta: args.hasta, temporada: args.temporada || null, ordenado_por: by, productos_sin_coste: sinCoste, filas };
+  }
+
+  if (name === 'precio_producto') {
+    const sql = findSqlConnector(runtime);
+    if (!sql) throw new Error('Este cliente no tiene ERP para consultar precios.');
+    const raw = String(args.articulo || '').trim();
+    if (!raw) throw new Error('Indica el artículo (código o nombre).');
+    const safe = raw.replace(/'/g, "''");
+    const code = raw.replace(/[^A-Za-z0-9]/g, '');
+    const rows = await sql.executeSql(
+      `SELECT TOP 8 a.CODIGO, a.DESCRIPCION, `
+      + `MAX(CASE WHEN t.CODIGO='10' THEN t.PRECIO END) AS coste, `
+      + `MAX(CASE WHEN t.CODIGO='01' THEN t.PRECIO END) AS pvp_erp `
+      + `FROM MAN_ARTICULOS a LEFT JOIN MAN_ARTICULOS_TARIFAS t ON t.ARTICULO=a.CODIGO AND t.TIPO='C' `
+      + `WHERE a.CODIGO='${code}' OR a.DESCRIPCION LIKE '%${safe}%' `
+      + `GROUP BY a.CODIGO, a.DESCRIPCION`
+    );
+    if (ctx.sources) ctx.sources.set(sql.name, sql.kind);
+    ctx.usedDataSource = ctx.usedDataSource || sql.name;
+
+    // Fallback de PVP: precio real de venta en Shopify (últimos 120 días).
+    const shop = findSalesConnector(runtime);
+    let shopMap = new Map();
+    if (shop && typeof shop.productSalesByArticle === 'function') {
+      const now = new Date(); const iso = (d) => d.toISOString().slice(0, 10);
+      const to = iso(now); const f = new Date(now); f.setUTCDate(f.getUTCDate() - 120);
+      const ventas = await shop.productSalesByArticle({ from: iso(f), to });
+      shopMap = new Map(ventas.map((v) => [String(v.articulo), v.precio_medio]));
+      if (ctx.sources) ctx.sources.set(shop.name, shop.kind);
+    }
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const filas = (rows || []).map((r) => {
+      const pvpErp = Number(r.pvp_erp) || 0;
+      const pvpShop = shopMap.get(String(r.CODIGO));
+      const pvp = pvpErp > 0 ? pvpErp : (pvpShop != null ? pvpShop : null);
+      return {
+        producto: r.DESCRIPCION,
+        articulo: r.CODIGO,
+        coste: Number(r.coste) > 0 ? r2(Number(r.coste)) : null,
+        pvp: pvp != null ? r2(pvp) : null,
+        fuente_pvp: pvpErp > 0 ? 'ERP (tarifa)' : (pvpShop != null ? 'Shopify (precio real)' : 'sin dato')
+      };
+    });
+    if (filas.length > ctx.collected.length) ctx.collected = filas;
+    return { articulo_buscado: raw, filas };
   }
 
   if (name === 'prevision_stock') {
