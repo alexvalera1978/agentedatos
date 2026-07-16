@@ -57,7 +57,8 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
     if (m && m.content) messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, 4000) });
   });
   messages.push({ role: 'user', content: question });
-  const ctx = { collected: [], usedDataSource: null, sources: new Map(), learned: false };
+  // `notas` = leyenda: criterios/periodos que usaron las herramientas (se muestra al usuario).
+  const ctx = { collected: [], usedDataSource: null, sources: new Map(), learned: false, notas: new Set() };
   const sourcesList = () => [...ctx.sources].map(([name, kind]) => ({ name, kind }));
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -78,6 +79,7 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
         targetEntity: null,
         usedDataSource: ctx.usedDataSource,
         sources: sourcesList(),
+        notes: [...ctx.notas],
         learned: ctx.learned,
         prompt: prompt || runtime?.prompt,
         data: ctx.collected.slice(0, 100),
@@ -117,6 +119,7 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
     targetEntity: null,
     usedDataSource: ctx.usedDataSource,
     sources: sourcesList(),
+    notes: [...ctx.notas],
     prompt: prompt || runtime?.prompt,
     data: ctx.collected.slice(0, 100),
     status: 'partial',

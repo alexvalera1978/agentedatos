@@ -275,6 +275,12 @@ function buildToolDefinitions(runtime) {
   return tools;
 }
 
+// Leyenda de la respuesta: cada herramienta ANOTA qué datos y criterios usó
+// (periodo, tarifas, exclusiones…) y el frontend lo muestra bajo la respuesta.
+// Así el usuario sabe en qué se basa la cifra sin tener que preguntarlo.
+const fmtFecha = (s) => String(s || '').slice(0, 10).split('-').reverse().join('/');
+function nota(ctx, texto) { if (ctx && ctx.notas) ctx.notas.add(texto); }
+
 // Ejecuta una llamada a herramienta. `ctx` acumula filas obtenidas (para mostrarlas
 // en el frontend) y registra la fuente usada.
 async function runTool(runtime, name, args, ctx) {
@@ -337,6 +343,9 @@ async function runTool(runtime, name, args, ctx) {
     });
     if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
     ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    nota(ctx, args.canal === 'cambios'
+      ? `Cambios (canal iF Returns) de Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}.`
+      : `Ventas B2C de Shopify (web + POS + pedidos manuales, sin cambios iF Returns) del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}.`);
     const arr = (summary.filas || []).slice(0, 100);
     if (arr.length > ctx.collected.length) ctx.collected = arr;
     return summary;
@@ -348,6 +357,7 @@ async function runTool(runtime, name, args, ctx) {
     const summary = await connector.topCustomers({ from: args.desde, to: args.hasta, limit: Math.min(Number(args.limite) || 10, 50) });
     if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
     ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    nota(ctx, `Mejores clientes por gasto en Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}; excluye estilistas/cesiones.`);
     const arr = summary.filas || [];
     if (arr.length > ctx.collected.length) ctx.collected = arr;
     return summary;
@@ -365,6 +375,7 @@ async function runTool(runtime, name, args, ctx) {
     });
     if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
     ctx.usedDataSource = ctx.usedDataSource || connector.name;
+    nota(ctx, `Más vendidos según pedidos de Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}, por ${args.ordenar_por === 'importe' ? 'importe' : 'unidades'}${args.temporada ? `, temporada ${args.temporada}` : ''}.`);
     const arr = summary.filas || [];
     if (arr.length > ctx.collected.length) ctx.collected = arr;
     return summary;
@@ -378,6 +389,7 @@ async function runTool(runtime, name, args, ctx) {
     const ventas = await shop.productSalesByArticle({ from: args.desde, to: args.hasta, temporada: args.temporada });
     if (ctx.sources) { ctx.sources.set(shop.name, shop.kind); ctx.sources.set(sql.name, sql.kind); }
     ctx.usedDataSource = ctx.usedDataSource || shop.name;
+    nota(ctx, `Margen = precio real de venta en Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)} menos el coste del ERP (tarifa "Venta Terceros Nacional").`);
     if (!ventas.length) return { desde: args.desde, hasta: args.hasta, filas: [], nota: 'Sin ventas en el periodo.' };
 
     // Costes desde el ERP (tarifa 10 = Venta Terceros Nacional), en una sola consulta.
@@ -419,33 +431,43 @@ async function runTool(runtime, name, args, ctx) {
     if (!sql) throw new Error('Este cliente no tiene ERP para consultar precios.');
     const raw = String(args.articulo || '').trim();
     if (!raw) throw new Error('Indica el artículo (código o nombre).');
-    const safe = raw.replace(/'/g, "''");
     const code = raw.replace(/[^A-Za-z0-9]/g, '');
+    // Búsqueda por PALABRAS, no por la frase exacta: el nombre de la web (Shopify) y la
+    // DESCRIPCION del ERP no siempre coinciden (orden, palabras de más, acentos). Se
+    // puntúa cuántas palabras casan y se tolera que UNA no cuadre.
+    const words = [...new Set(raw.split(/\s+/).map((w) => w.replace(/'/g, "''")).filter((w) => w.length >= 3))].slice(0, 8);
+    const score = words.length
+      ? words.map((w) => `(CASE WHEN a.DESCRIPCION LIKE '%${w}%' THEN 1 ELSE 0 END)`).join('+')
+      : '0';
+    const minScore = Math.max(1, words.length - 1);
     const rows = await sql.executeSql(
-      `SELECT TOP 8 a.CODIGO, a.DESCRIPCION, `
+      `SELECT TOP 8 * FROM (SELECT a.CODIGO, a.DESCRIPCION, `
       + `MAX(CASE WHEN t.CODIGO='10' THEN t.PRECIO END) AS coste, `
-      + `MAX(CASE WHEN t.CODIGO='01' THEN t.PRECIO END) AS pvp_erp `
+      + `MAX(CASE WHEN t.CODIGO='01' THEN t.PRECIO END) AS pvp_erp, `
+      + `${score} AS score `
       + `FROM MAN_ARTICULOS a LEFT JOIN MAN_ARTICULOS_TARIFAS t ON t.ARTICULO=a.CODIGO AND t.TIPO='C' `
-      + `WHERE a.CODIGO='${code}' OR a.DESCRIPCION LIKE '%${safe}%' `
-      + `GROUP BY a.CODIGO, a.DESCRIPCION`
+      + `GROUP BY a.CODIGO, a.DESCRIPCION) x `
+      + `WHERE x.CODIGO='${code}'${words.length ? ` OR x.score >= ${minScore}` : ''} `
+      + `ORDER BY CASE WHEN x.CODIGO='${code}' THEN 1 ELSE 0 END DESC, x.score DESC`
     );
     if (ctx.sources) ctx.sources.set(sql.name, sql.kind);
     ctx.usedDataSource = ctx.usedDataSource || sql.name;
 
-    // Fallback de PVP: precio real de venta en Shopify (últimos 120 días).
+    // Ventas recientes de Shopify: sirven de PVP real cuando el ERP no tiene tarifa PVP,
+    // y de puente nombre de la web → código cuando el ERP no encuentra el nombre.
     const shop = findSalesConnector(runtime);
-    let shopMap = new Map();
+    let ventasShop = [];
     if (shop && typeof shop.productSalesByArticle === 'function') {
       const now = new Date(); const iso = (d) => d.toISOString().slice(0, 10);
       const to = iso(now); const f = new Date(now); f.setUTCDate(f.getUTCDate() - 120);
-      const ventas = await shop.productSalesByArticle({ from: iso(f), to });
-      shopMap = new Map(ventas.map((v) => [String(v.articulo), v.precio_medio]));
+      ventasShop = await shop.productSalesByArticle({ from: iso(f), to });
       if (ctx.sources) ctx.sources.set(shop.name, shop.kind);
     }
+    const shopMap = new Map(ventasShop.map((v) => [String(v.articulo), v]));
     const r2 = (n) => Math.round(n * 100) / 100;
-    const filas = (rows || []).map((r) => {
+    let filas = (rows || []).map((r) => {
       const pvpErp = Number(r.pvp_erp) || 0;
-      const pvpShop = shopMap.get(String(r.CODIGO));
+      const pvpShop = shopMap.get(String(r.CODIGO))?.precio_medio;
       const pvp = pvpErp > 0 ? pvpErp : (pvpShop != null ? pvpShop : null);
       return {
         producto: r.DESCRIPCION,
@@ -455,6 +477,40 @@ async function runTool(runtime, name, args, ctx) {
         fuente_pvp: pvpErp > 0 ? 'ERP (tarifa)' : (pvpShop != null ? 'Shopify (precio real)' : 'sin dato')
       };
     });
+
+    // El ERP no encontró el nombre: lo buscamos en los TÍTULOS de Shopify (el nombre que
+    // ve el usuario en la web), sacamos su código de artículo y pedimos tarifas por código.
+    if (!filas.length && ventasShop.length) {
+      const norm = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+      const nWords = raw.split(/\s+/).map(norm).filter((w) => w.length >= 3);
+      const min = Math.max(1, nWords.length - 1);
+      const hits = ventasShop
+        .map((v) => ({ v, s: nWords.filter((w) => norm(v.producto).includes(w)).length }))
+        .filter((h) => h.s >= min)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 8);
+      if (hits.length) {
+        const inList = hits.map((h) => `'${String(h.v.articulo).replace(/[^A-Za-z0-9]/g, '')}'`).join(',');
+        const tarifas = await sql.executeSql(
+          `SELECT ARTICULO, MAX(CASE WHEN CODIGO='10' THEN PRECIO END) AS coste, `
+          + `MAX(CASE WHEN CODIGO='01' THEN PRECIO END) AS pvp_erp `
+          + `FROM MAN_ARTICULOS_TARIFAS WHERE TIPO='C' AND ARTICULO IN (${inList}) GROUP BY ARTICULO`
+        );
+        const tMap = new Map((tarifas || []).map((t) => [String(t.ARTICULO), t]));
+        filas = hits.map(({ v }) => {
+          const t = tMap.get(String(v.articulo).replace(/[^A-Za-z0-9]/g, '')) || {};
+          const pvpErp = Number(t.pvp_erp) || 0;
+          return {
+            producto: v.producto,
+            articulo: v.articulo,
+            coste: Number(t.coste) > 0 ? r2(Number(t.coste)) : null,
+            pvp: pvpErp > 0 ? r2(pvpErp) : (v.precio_medio != null ? r2(v.precio_medio) : null),
+            fuente_pvp: pvpErp > 0 ? 'ERP (tarifa)' : (v.precio_medio != null ? 'Shopify (precio real)' : 'sin dato')
+          };
+        });
+      }
+    }
+    nota(ctx, 'Coste = tarifa "Venta Terceros Nacional" del ERP; PVP = tarifa PVP del ERP o, si falta, precio real de venta en Shopify (últimos 120 días).');
     if (filas.length > ctx.collected.length) ctx.collected = filas;
     return { articulo_buscado: raw, filas };
   }
@@ -492,6 +548,7 @@ async function runTool(runtime, name, args, ctx) {
     ctx.usedDataSource = ctx.usedDataSource || sql.name;
 
     const hasta = args.hasta || `${now.getUTCFullYear()}-12-31`;
+    nota(ctx, `Previsión: stock actual del ERP × velocidad de venta de Shopify del ${fmtFecha(from)} al ${fmtFecha(to)} (${dias} días)${args.temporada ? `, temporada ${args.temporada}` : ''}; horizonte hasta el ${fmtFecha(hasta)}. Para usar otro periodo de referencia, pídelo (p. ej. "usando las ventas de la campaña pasada").`);
     const diasHasta = Math.max(0, Math.round((new Date(`${hasta}T00:00:00Z`) - now) / 86400000));
     const r1 = (n) => Math.round(n * 10) / 10;
     const filtro = args.articulo ? String(args.articulo).toLowerCase() : null;

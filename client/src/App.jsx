@@ -158,6 +158,11 @@ function AssistantMsg({ msg }) {
             </span>
           </div>
         )}
+        {msg.notes && msg.notes.length > 0 && (
+          <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#94a3b8', lineHeight: 1.5 }}>
+            {msg.notes.map((n, i) => <div key={i}>ℹ️ {n}</div>)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -205,7 +210,7 @@ export default function App() {
       const data = text ? JSON.parse(text) : null;
       const r = data || { status: 'error', text: 'El servidor no respondió. ¿Está arrancado el backend (npm run dev)?' };
       const elapsedMs = r.elapsedMs != null ? r.elapsedMs : Date.now() - t0;
-      setMessages((m) => [...m, { role: 'assistant', text: r.text || r.message || '', data: r.data, sources: r.sources, engine: r.engine, charts: r.charts, status: r.status, learned: r.learned, elapsedMs }]);
+      setMessages((m) => [...m, { role: 'assistant', text: r.text || r.message || '', data: r.data, sources: r.sources, notes: r.notes, engine: r.engine, charts: r.charts, status: r.status, learned: r.learned, elapsedMs }]);
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: 'No se pudo contactar con el servidor: ' + e.message, status: 'error' }]);
     } finally { setLoading(false); }
