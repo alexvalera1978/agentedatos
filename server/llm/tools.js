@@ -25,6 +25,23 @@ function findSalesConnector(runtime) {
   );
 }
 
+// Almacenes COMERCIALES activos (Central + tienda Claudio Coello). Los demás
+// (000000, 001000, '100   '…) son internos y no representan mercancía real.
+const ALMACENES_ACTIVOS = "'000100','000004'";
+
+// Temporadas ACTIVAS según el ERP (campo ACTUAL de MAN_TEMPORADAS), en vez de una
+// lista fija que se queda obsoleta cada campaña. ACTUAL puede venir como 'S'/'N',
+// 1/0 o booleano según el ERP: lo tratamos como verdadero de forma flexible.
+const ACTUAL_TRUE = /^(s|si|sí|1|y|yes|true|t)$/i;
+async function getActiveSeasons(sql) {
+  let rows = [];
+  try { rows = await sql.executeSql('SELECT CODIGO, NOMBRE, ACTUAL FROM MAN_TEMPORADAS'); }
+  catch { return []; }
+  return (rows || [])
+    .filter((r) => ACTUAL_TRUE.test(String(r.ACTUAL == null ? '' : r.ACTUAL).trim()))
+    .map((r) => ({ codigo: String(r.CODIGO).trim(), nombre: String(r.NOMBRE || '').trim() }));
+}
+
 // Construye las definiciones de herramientas para la API de OpenAI, según lo que
 // el tenant tenga configurado.
 function buildToolDefinitions(runtime) {
@@ -266,6 +283,31 @@ function buildToolDefinitions(runtime) {
             articulo: { type: 'string', description: 'Código exacto o parte del nombre del artículo' }
           },
           required: ['articulo'],
+          additionalProperties: false
+        }
+      }
+    });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'temporadas',
+        description:
+          'Lista las TEMPORADAS del ERP (código y nombre) e indica cuáles están ACTIVAS ahora, según el campo ACTUAL de MAN_TEMPORADAS. Úsala para "¿cuáles son las temporadas activas?" y para saber qué temporadas incluir en el stock por defecto. NUNCA uses una lista fija de temporadas: cambian cada campaña.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      }
+    });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'stock_bajo_minimo',
+        description:
+          'Lista los ARTÍCULOS por debajo de su STOCK MÍNIMO: compara el stock actual del ERP (almacenes activos) con MAN_ARTICULOS.STOCK_MINIMO. Úsala para "¿qué artículos están bajo mínimo?", "¿qué tengo que reponer?". Puede filtrar por temporada.',
+        parameters: {
+          type: 'object',
+          properties: {
+            temporada: { type: 'string', description: 'Código(s) de temporada, p. ej. "24" o "24,25" (opcional; por defecto, todas)' },
+            limite: { type: 'integer', description: 'Cuántos artículos devolver (por defecto 20)' }
+          },
           additionalProperties: false
         }
       }
@@ -515,6 +557,54 @@ async function runTool(runtime, name, args, ctx) {
     return { articulo_buscado: raw, filas };
   }
 
+  if (name === 'temporadas') {
+    const sql = findSqlConnector(runtime);
+    if (!sql) throw new Error('Este cliente no tiene ERP para consultar temporadas.');
+    const rows = await sql.executeSql('SELECT CODIGO, NOMBRE, ACTUAL, FECHA_INICIO FROM MAN_TEMPORADAS ORDER BY CODIGO');
+    if (ctx.sources) ctx.sources.set(sql.name, sql.kind);
+    ctx.usedDataSource = ctx.usedDataSource || sql.name;
+    const filas = (rows || []).map((r) => ({
+      codigo: String(r.CODIGO).trim(),
+      temporada: String(r.NOMBRE || '').trim(),
+      activa: ACTUAL_TRUE.test(String(r.ACTUAL == null ? '' : r.ACTUAL).trim()) ? 'sí' : 'no',
+      inicio: r.FECHA_INICIO || null
+    }));
+    const activas = filas.filter((f) => f.activa === 'sí');
+    nota(ctx, activas.length
+      ? `Temporadas activas ahora (MAN_TEMPORADAS.ACTUAL): ${activas.map((a) => `${a.codigo} ${a.temporada}`).join(', ')}.`
+      : 'Ninguna temporada aparece marcada como activa en MAN_TEMPORADAS.');
+    if (filas.length > ctx.collected.length) ctx.collected = filas;
+    return { filas, activas: activas.map((a) => ({ codigo: a.codigo, temporada: a.temporada })) };
+  }
+
+  if (name === 'stock_bajo_minimo') {
+    const sql = findSqlConnector(runtime);
+    if (!sql) throw new Error('Este cliente no tiene ERP para consultar stock.');
+    const tFilter = args.temporada
+      ? ` AND a.TEMPORADA IN (${String(args.temporada).split(',').map((t) => `'${t.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`
+      : '';
+    const limite = Math.min(Number(args.limite) || 20, 100);
+    const rows = await sql.executeSql(
+      `SELECT TOP ${limite} a.CODIGO, a.DESCRIPCION, a.STOCK_MINIMO, ISNULL(s.stock,0) AS stock `
+      + `FROM MAN_ARTICULOS a `
+      + `LEFT JOIN (SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN (${ALMACENES_ACTIVOS}) GROUP BY ARTICULO) s ON s.ARTICULO = a.CODIGO `
+      + `WHERE a.STOCK_MINIMO > 0 AND ISNULL(s.stock,0) < a.STOCK_MINIMO${tFilter} `
+      + `ORDER BY (a.STOCK_MINIMO - ISNULL(s.stock,0)) DESC`
+    );
+    if (ctx.sources) ctx.sources.set(sql.name, sql.kind);
+    ctx.usedDataSource = ctx.usedDataSource || sql.name;
+    const filas = (rows || []).map((r) => ({
+      producto: r.DESCRIPCION,
+      articulo: String(r.CODIGO).trim(),
+      stock: Number(r.stock) || 0,
+      stock_minimo: Number(r.STOCK_MINIMO) || 0,
+      faltan: Math.max(0, (Number(r.STOCK_MINIMO) || 0) - (Number(r.stock) || 0))
+    }));
+    nota(ctx, `Artículos con stock por debajo de su mínimo (MAN_ARTICULOS.STOCK_MINIMO) en los almacenes activos${args.temporada ? `, temporada ${args.temporada}` : ''}.`);
+    if (filas.length > ctx.collected.length) ctx.collected = filas;
+    return { filas };
+  }
+
   if (name === 'prevision_stock') {
     const shop = findSalesConnector(runtime);
     const sql = findSqlConnector(runtime);
@@ -538,17 +628,27 @@ async function runTool(runtime, name, args, ctx) {
     // Velocidad de venta (Shopify) y stock (ERP).
     const ventas = await shop.productSalesByArticle({ from, to });
     const ventasMap = new Map(ventas.map((v) => [String(v.articulo), v]));
-    const tFilter = args.temporada
-      ? ` AND TEMPORADA IN (${String(args.temporada).split(',').map((t) => `'${t.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`
-      : '';
+    // Filtro de temporada: si el usuario da una, la usa; si no (y no pide un artículo
+    // concreto), se centra en las temporadas ACTIVAS del ERP, no en todo el stock viejo.
+    let tFilter = '';
+    let activasNota = '';
+    if (args.temporada) {
+      tFilter = ` AND TEMPORADA IN (${String(args.temporada).split(',').map((t) => `'${t.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`;
+    } else if (!args.articulo) {
+      const act = await getActiveSeasons(sql);
+      if (act.length) {
+        tFilter = ` AND TEMPORADA IN (${act.map((a) => `'${a.codigo.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`;
+        activasNota = ` (temporadas activas: ${act.map((a) => a.nombre || a.codigo).join(', ')})`;
+      }
+    }
     const stockRows = await sql.executeSql(
-      `SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN ('000100','000004')${tFilter} GROUP BY ARTICULO HAVING SUM(ENTRADA-SALIDA) > 0`
+      `SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN (${ALMACENES_ACTIVOS})${tFilter} GROUP BY ARTICULO HAVING SUM(ENTRADA-SALIDA) > 0`
     );
     if (ctx.sources) { ctx.sources.set(shop.name, shop.kind); ctx.sources.set(sql.name, sql.kind); }
     ctx.usedDataSource = ctx.usedDataSource || sql.name;
 
     const hasta = args.hasta || `${now.getUTCFullYear()}-12-31`;
-    nota(ctx, `Previsión: stock actual del ERP × velocidad de venta de Shopify del ${fmtFecha(from)} al ${fmtFecha(to)} (${dias} días)${args.temporada ? `, temporada ${args.temporada}` : ''}; horizonte hasta el ${fmtFecha(hasta)}. Para usar otro periodo de referencia, pídelo (p. ej. "usando las ventas de la campaña pasada").`);
+    nota(ctx, `Previsión: stock actual del ERP × velocidad de venta de Shopify del ${fmtFecha(from)} al ${fmtFecha(to)} (${dias} días)${args.temporada ? `, temporada ${args.temporada}` : activasNota}; horizonte hasta el ${fmtFecha(hasta)}. Para usar otro periodo de referencia, pídelo (p. ej. "usando las ventas de la campaña pasada").`);
     const diasHasta = Math.max(0, Math.round((new Date(`${hasta}T00:00:00Z`) - now) / 86400000));
     const r1 = (n) => Math.round(n * 10) / 10;
     const filtro = args.articulo ? String(args.articulo).toLowerCase() : null;

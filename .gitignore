@@ -12,3 +12,6 @@ scripts/results*.json
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Documentos del cliente (pueden contener credenciales) — nunca al repo
+*.pdf
