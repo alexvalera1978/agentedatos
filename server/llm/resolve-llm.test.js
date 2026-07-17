@@ -15,17 +15,27 @@ test('resolveLlm respeta el modelo elegido y el baseUrl en "custom"', () => {
   assert.strictEqual(r.baseURL, 'https://x/v1');
 });
 
-test('resolveLlm cae a la config global (.env) si el cliente no tiene proveedor+key', () => {
-  const prev = { k: process.env.OPENAI_API_KEY, m: process.env.OPENAI_MODEL, b: process.env.OPENAI_BASE_URL };
+test('resolveLlm marca needsKey si el cliente eligió proveedor pero NO puso key (no usa la global)', () => {
+  const prev = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'env-key'; // aunque haya global, no se debe usar con otro proveedor
+  try {
+    const r = resolveLlm({ llm: { provider: 'gemini' } });
+    assert.deepStrictEqual(r, { needsKey: true, provider: 'gemini' });
+  } finally {
+    if (prev === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = prev;
+  }
+});
+
+test('resolveLlm usa la global (.env) cuando el cliente NO eligió proveedor (provider vacío)', () => {
+  const prev = { k: process.env.OPENAI_API_KEY, b: process.env.OPENAI_BASE_URL };
   process.env.OPENAI_API_KEY = 'env-key';
-  process.env.OPENAI_MODEL = 'gpt-4o';
   delete process.env.OPENAI_BASE_URL;
   try {
-    const r = resolveLlm({ llm: { provider: 'gemini' } }); // proveedor sin key -> global
+    const r = resolveLlm({ llm: { provider: '' } });
     assert.strictEqual(r.apiKey, 'env-key');
-    assert.strictEqual(r.baseURL, undefined);
+    assert.strictEqual(r.provider, 'global');
   } finally {
-    process.env.OPENAI_API_KEY = prev.k; process.env.OPENAI_MODEL = prev.m;
+    process.env.OPENAI_API_KEY = prev.k;
     if (prev.b === undefined) delete process.env.OPENAI_BASE_URL; else process.env.OPENAI_BASE_URL = prev.b;
   }
 });

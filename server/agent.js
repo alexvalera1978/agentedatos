@@ -45,6 +45,23 @@ function llmUnavailableResponse(params, activeRuntime, err) {
   };
 }
 
+// Aviso cuando el cliente eligió un proveedor de IA propio pero NO puso su API key.
+function llmNeedsKeyResponse(params, activeRuntime, provider) {
+  const names = { gemini: 'Google Gemini', openai: 'OpenAI', groq: 'Groq', deepseek: 'DeepSeek', custom: 'el proveedor personalizado' };
+  const p = names[provider] || provider;
+  return {
+    tenantId: params.tenantId,
+    tenantName: params.tenant?.name || activeRuntime?.tenant?.name || 'cliente',
+    text: `Este cliente tiene seleccionado ${p} como IA, pero falta su API key en este servidor. Ponla en Administración → «Modelo de IA (LLM)» para este cliente y guarda. (Las API keys son propias de cada entorno; configurarla en desarrollo no la copia a producción.)`,
+    targetEntity: null,
+    usedDataSource: null,
+    sources: [],
+    data: [],
+    status: 'error',
+    engine: 'llm_unavailable'
+  };
+}
+
 /**
  * Punto de entrada del motor. Si hay un LLM configurado (OPENAI_API_KEY), lo usa
  * para interpretar CUALQUIER pregunta vía tool-calling. Si no, cae al motor por
@@ -56,9 +73,8 @@ async function buildAgentResponse(params) {
 
   let response;
   let llmError = null;
-  // ¿Hay IA disponible para este cliente? (su propia config, o la global del .env)
-  const hasLlm = !!resolveLlm(activeRuntime);
-  if (hasLlm) {
+  const llm = resolveLlm(activeRuntime); // config del cliente, o global (.env), o null
+  if (llm && !llm.needsKey) {
     try {
       response = await buildLlmResponse(enriched);
     } catch (err) {
@@ -67,14 +83,16 @@ async function buildAgentResponse(params) {
     }
   }
   if (!response) {
-    if (llmError) {
+    if (llm && llm.needsKey) {
+      // El cliente eligió un proveedor propio pero no puso su API key.
+      response = llmNeedsKeyResponse(params, activeRuntime, llm.provider);
+    } else if (llmError) {
       // La IA ESTÁ configurada pero la llamada falló (cuota/429, red, API caída…).
       // NO degradamos a palabras clave: ese motor da resultados sin sentido para
       // preguntas analíticas (volcaría la tabla cruda de pedidos con cifras absurdas).
-      // Mejor un aviso claro de que la IA no está disponible ahora mismo.
       response = llmUnavailableResponse(params, activeRuntime, llmError);
     } else {
-      // No hay clave de IA configurada: modo offline por palabras clave (a propósito).
+      // No hay ningún LLM configurado: modo offline por palabras clave (a propósito).
       response = await buildKeywordResponse(enriched);
     }
   }

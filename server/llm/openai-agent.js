@@ -14,20 +14,26 @@ const LLM_PROVIDERS = {
   custom: { baseUrl: null, defaultModel: 'gpt-4o' }
 };
 
-// Config EFECTIVA de LLM: primero la del cliente (si tiene proveedor + apiKey),
-// si no la global del .env. Devuelve null si no hay ninguna → sin IA.
+// Config EFECTIVA de LLM. Devuelve:
+//  - config usable { apiKey, baseURL, model, provider }
+//  - { needsKey: true, provider } si el cliente eligió proveedor propio pero falta su key
+//  - null si no hay ninguna (ni cliente ni .env) → sin IA (modo palabras clave)
 function resolveLlm(runtime) {
   const t = (runtime && runtime.llm) || {};
-  if (t.provider && t.apiKey) {
+  if (t.provider) {
+    // El cliente eligió su propio proveedor: EXIGE su key (no mezclar con la global,
+    // que sería otro proveedor y daría errores confusos como "cuota de OpenAI").
+    if (!t.apiKey) return { needsKey: true, provider: t.provider };
     const p = LLM_PROVIDERS[t.provider] || {};
     const baseURL = (t.provider === 'custom' ? t.baseUrl : p.baseUrl) || undefined;
-    return { apiKey: t.apiKey, baseURL, model: t.model || p.defaultModel || 'gpt-4o' };
+    return { apiKey: t.apiKey, baseURL, model: t.model || p.defaultModel || 'gpt-4o', provider: t.provider };
   }
   if (process.env.OPENAI_API_KEY) {
     return {
       apiKey: process.env.OPENAI_API_KEY,
       baseURL: process.env.OPENAI_BASE_URL || undefined,
-      model: process.env.OPENAI_MODEL || 'gpt-4o'
+      model: process.env.OPENAI_MODEL || 'gpt-4o',
+      provider: 'global'
     };
   }
   return null;
@@ -77,7 +83,7 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
   // Config de LLM del cliente (o la global del .env). Puede apuntar a OpenAI o a
   // cualquier proveedor COMPATIBLE (Gemini, Groq, DeepSeek…): mismo SDK, otra baseURL.
   const llm = resolveLlm(runtime);
-  if (!llm) throw new Error('No hay ningún LLM configurado (ni para el cliente ni en el .env).');
+  if (!llm || llm.needsKey) throw new Error('No hay ningún LLM utilizable (falta la API key del proveedor del cliente o la global del .env).');
   const client = new OpenAI({ apiKey: llm.apiKey, baseURL: llm.baseURL });
   const model = llm.model;
   const tenantName = tenant?.name || runtime?.tenant?.name || 'cliente';
