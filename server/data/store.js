@@ -75,8 +75,11 @@ function getTenantConfig(id) {
 function listTenantConfigs() {
   ensureDir();
   return fs.readdirSync(dir())
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => resolveEnv(JSON.parse(fs.readFileSync(path.join(dir(), f), 'utf8'))));
+    // secrets.json NO es un tenant (guarda las API keys); cualquier json sin
+    // `tenant` se ignora también, para no reventar el listado.
+    .filter((f) => f.endsWith('.json') && f !== 'secrets.json')
+    .map((f) => resolveEnv(JSON.parse(fs.readFileSync(path.join(dir(), f), 'utf8'))))
+    .filter((c) => c && c.tenant && c.tenant.id);
 }
 
 function saveTenantConfig(config) {
