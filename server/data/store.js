@@ -69,6 +69,14 @@ function getTenantConfig(id) {
   // Inyecta la API key del LLM (guardada aparte) en la config del LLM del tenant.
   const secrets = getTenantSecrets(id);
   if (secrets.llmApiKey) cfg.llm = { ...(cfg.llm || {}), apiKey: secrets.llmApiKey };
+  // GUÍA del agente VERSIONADA: se despliega por git en server/data/guides/<id>.txt,
+  // aparte de la config local del cliente (que NO va por git). Si existe, tiene
+  // prioridad sobre el prompt del JSON. Así editar la guía no pisa la config local
+  // (proveedor de IA, orígenes…) ni provoca conflictos de merge al desplegar.
+  try {
+    const gp = path.join(__dirname, 'guides', `${id}.txt`);
+    if (fs.existsSync(gp)) cfg.prompt = fs.readFileSync(gp, 'utf8').trim();
+  } catch { /* si falla, se usa el prompt del propio JSON */ }
   return cfg;
 }
 

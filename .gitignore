@@ -9,9 +9,11 @@ npm-debug.log*
 server/data/uploads/
 scripts/results*.json
 
-# Claves por cliente (API keys de LLM, etc.) — NUNCA al repo
+# Config LOCAL de cada cliente (la edita la app; NO debe ir por git para no
+# pisar la config de cada entorno ni provocar conflictos al desplegar).
+# La GUÍA del agente sí se versiona, en server/data/guides/<id>.txt.
+server/data/tenants/*.json
 secrets.json
-server/data/tenants/secrets.json
 
 # Sistema
 .DS_Store
