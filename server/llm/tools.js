@@ -641,8 +641,13 @@ async function runTool(runtime, name, args, ctx) {
         activasNota = ` (temporadas activas: ${act.map((a) => a.nombre || a.codigo).join(', ')})`;
       }
     }
+    // Se une con MAN_ARTICULOS para tener el NOMBRE del artículo aunque NO se haya
+    // vendido en el periodo (si no, solo tendríamos el código y no se podría buscar
+    // por nombre un artículo sin ventas recientes).
     const stockRows = await sql.executeSql(
-      `SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN (${ALMACENES_ACTIVOS})${tFilter} GROUP BY ARTICULO HAVING SUM(ENTRADA-SALIDA) > 0`
+      `SELECT s.ARTICULO, s.stock, a.DESCRIPCION FROM `
+      + `(SELECT ARTICULO, SUM(ENTRADA-SALIDA) AS stock FROM ALM_STOCK WHERE ALMACEN IN (${ALMACENES_ACTIVOS})${tFilter} GROUP BY ARTICULO HAVING SUM(ENTRADA-SALIDA) > 0) s `
+      + `LEFT JOIN MAN_ARTICULOS a ON a.CODIGO = s.ARTICULO`
     );
     if (ctx.sources) { ctx.sources.set(shop.name, shop.kind); ctx.sources.set(sql.name, sql.kind); }
     ctx.usedDataSource = ctx.usedDataSource || sql.name;
@@ -656,26 +661,30 @@ async function runTool(runtime, name, args, ctx) {
     let filas = (stockRows || []).map((r) => {
       const art = String(r.ARTICULO);
       const v = ventasMap.get(art);
+      const nombreErp = r.DESCRIPCION ? String(r.DESCRIPCION).trim() : '';
       const stock = Number(r.stock);
       const vendidos = v ? v.unidades : 0;
       const porDia = vendidos / dias;
       return {
-        producto: v ? v.producto : art,
+        producto: (v && v.producto) || nombreErp || art, // nombre de Shopify, o del ERP, o el código
         articulo: art,
         stock,
         vendidos_ultimos_dias: vendidos,
         unidades_dia: r1(porDia),
         dias_cobertura: porDia > 0 ? Math.round(stock / porDia) : null,
         necesita_hasta: Math.round(porDia * diasHasta),
-        suficiente: porDia > 0 ? (stock >= porDia * diasHasta ? 'sí' : 'no') : 'sin ventas'
+        suficiente: porDia > 0 ? (stock >= porDia * diasHasta ? 'sí' : 'no') : 'sin ventas',
+        // texto para BUSCAR (nombre ERP + nombre Shopify + código); no se muestra.
+        _buscar: `${nombreErp} ${(v && v.producto) || ''} ${art}`.toLowerCase()
       };
     });
 
     if (filtro) {
       // Búsqueda flexible: el nombre que dice el usuario ("blazer Manhattan") no
-      // suele coincidir literal con el ERP/Shopify. Buscamos por palabras y, si nada
-      // cuadra con todas, por la MÁS DISTINTIVA (la más larga: el nombre del modelo).
-      const has = (f, w) => f.articulo.toLowerCase().includes(w) || String(f.producto).toLowerCase().includes(w);
+      // suele coincidir literal con el ERP/Shopify. Buscamos por palabras (contra el
+      // nombre del ERP Y el de Shopify) y, si nada cuadra con todas, por la MÁS
+      // DISTINTIVA (la más larga: el nombre del modelo).
+      const has = (f, w) => f._buscar.includes(w);
       const words = filtro.split(/\s+/).filter((w) => w.length >= 3);
       let m = words.length ? filas.filter((f) => words.every((w) => has(f, w))) : [];
       if (!m.length && words.length) {
@@ -687,7 +696,7 @@ async function runTool(runtime, name, args, ctx) {
     }
     else filas = filas.filter((f) => f.unidades_dia > 0); // en general: solo lo que se vende (riesgo de agotarse)
     filas.sort((a, b) => (a.dias_cobertura ?? 1e9) - (b.dias_cobertura ?? 1e9)); // lo que antes se agota, primero
-    filas = filas.slice(0, Math.min(Number(args.limite) || 15, 50));
+    filas = filas.slice(0, Math.min(Number(args.limite) || 15, 50)).map(({ _buscar, ...f }) => f);
 
     if (filas.length > ctx.collected.length) ctx.collected = filas;
     return { base, historico_desde: from, historico_hasta: to, horizonte: hasta, dias_hasta: diasHasta, dias_historico: dias, filas };
