@@ -1,11 +1,12 @@
 class ClientRuntime {
-  constructor({ tenant, connectors = [], mappings = [], tools = [], prompt, charts = false } = {}) {
+  constructor({ tenant, connectors = [], mappings = [], tools = [], prompt, charts = false, llm = null } = {}) {
     this.tenant = tenant;
     this.connectors = connectors;
     this.mappings = mappings;
     this.tools = tools;
     this.prompt = prompt;
     this.charts = charts; // ¿mostrar gráficos en las respuestas?
+    this.llm = llm; // config de LLM propia del cliente (proveedor/modelo/apiKey); null = usar la global (.env)
   }
 
   getConnector(kind) {

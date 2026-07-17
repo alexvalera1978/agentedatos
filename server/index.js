@@ -71,6 +71,11 @@ app.post('/api/tenants/:id/hint', wrap((req, res) => {
   res.json(onboarding.appendHint(req.params.id, (req.body || {}).hint));
 }));
 
+// Guardar la API key del LLM del cliente (write-only; se almacena fuera del JSON/git).
+app.post('/api/tenants/:id/llm-key', wrap((req, res) => {
+  res.json(onboarding.setLlmKey(req.params.id, (req.body || {}).apiKey));
+}));
+
 // Descubrir TABLAS/recursos de un origen (SQL: tablas físicas reales; REST: recursos).
 app.post('/api/onboarding/tables', wrap(async (req, res) => {
   const { patron, ...source } = req.body || {};
@@ -174,4 +179,9 @@ app.get(/^\/(?!api\/|health\b).*/, (_req, res) => {
 
 app.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);
+  const llmGlobal = process.env.OPENAI_API_KEY
+    ? `${process.env.OPENAI_MODEL || 'gpt-4o'} @ ${process.env.OPENAI_BASE_URL || 'OpenAI'}`
+    : 'sin clave global (cada cliente puede tener la suya; si no, modo palabras clave)';
+  console.log(`LLM global (.env): ${llmGlobal}`);
+  console.log(`Login: ${auth.enabled() ? 'ACTIVADO (APP_PASSWORD)' : 'desactivado (sin APP_PASSWORD)'}`);
 });

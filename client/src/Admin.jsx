@@ -20,6 +20,16 @@ const CANONICOS = [
 ];
 const ENTIDADES = ['orders', 'customers', 'products', 'inventory', 'invoices', 'purchases', 'suppliers', 'tickets'];
 
+// Proveedores de LLM que el cliente puede elegir (todos compatibles con la API de OpenAI).
+const LLM_PROVIDERS = [
+  { id: '', label: 'Por defecto del servidor (.env)', model: '' },
+  { id: 'openai', label: 'OpenAI', model: 'gpt-4o' },
+  { id: 'gemini', label: 'Google Gemini', model: 'gemini-2.0-flash' },
+  { id: 'groq', label: 'Groq', model: 'llama-3.3-70b-versatile' },
+  { id: 'deepseek', label: 'DeepSeek', model: 'deepseek-chat' },
+  { id: 'custom', label: 'Personalizado (compatible OpenAI)', model: '' }
+];
+
 const KINDS = {
   excel: { label: 'Excel / CSV (archivo)', sql: false, fields: [{ k: 'filePath', label: 'Ruta del archivo', ph: 'server/data/uploads/coches_ventas.xlsx' }] },
   shopify: { label: 'Shopify', sql: false, fields: [{ k: 'domain', label: 'Dominio de la tienda', ph: 'xxx.myshopify.com' }, { k: 'accessToken', label: 'Access token', secret: true }, { k: 'apiVersion', label: 'Versión de API', def: '2024-10' }] },
@@ -108,6 +118,9 @@ export default function Admin() {
   const [prompt, setPrompt] = useState('');
   const [charts, setCharts] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [llm, setLlm] = useState({ provider: '', model: '', baseUrl: '' });
+  const [llmKey, setLlmKey] = useState('');       // key nueva a enviar (vacío = no cambiar)
+  const [llmKeySet, setLlmKeySet] = useState(false); // ¿ya hay una guardada?
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4500); };
   const wrap = (fn) => async (...a) => { try { await fn(...a); } catch (e) { flash('⚠️ ' + e.message); } };
@@ -138,6 +151,8 @@ export default function Admin() {
     setSelected(id); setTestRes(null); setTables(null);
     const c = await api(`/api/tenants/${id}`);
     setConfig(c); setPrompt(c.prompt || ''); setCharts(c.charts === true);
+    setLlm({ provider: c.llm?.provider || '', model: c.llm?.model || '', baseUrl: c.llm?.baseUrl || '' });
+    setLlmKey(''); setLlmKeySet(!!c.llmKeySet);
     const { pairs: p, te, cols } = mappingsToState(c.mappings || []);
     setPairs(p); setTableEntity(te); setColsByRes(cols);
     setShowMap(Object.keys(cols).length > 0);
@@ -241,9 +256,10 @@ export default function Admin() {
 
   const saveAll = wrap(async () => {
     const mappings = pairsToMappings(pairs, tableEntity);
-    await api(`/api/tenants/${selected}`, 'PUT', { mappings, prompt, charts });
+    await api(`/api/tenants/${selected}`, 'PUT', { mappings, prompt, charts, llm });
+    if (llmKey.trim()) await api(`/api/tenants/${selected}/llm-key`, 'POST', { apiKey: llmKey.trim() });
     await openTenant(selected);
-    flash('✅ Guardado (mapping + guía + opciones)');
+    flash('✅ Guardado (LLM + mapping + guía + opciones)');
   });
 
   const usedTables = Object.keys(colsByRes);
@@ -404,6 +420,40 @@ export default function Admin() {
             <div style={box}>
               <strong>{KINDS[kind].sql ? '4' : '3'} · Guía del agente (opcional)</strong>
               <textarea style={{ ...input, minHeight: 80, marginTop: '0.6rem' }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Pistas para el LLM: dónde está cada dato, reglas de negocio…" />
+            </div>
+
+            {/* Modelo de IA (LLM) */}
+            <div style={box}>
+              <strong>Modelo de IA (LLM)</strong>
+              <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '0.3rem 0 0.6rem' }}>
+                Elige el proveedor de IA de este cliente y pon su API key. Si lo dejas en <b>«Por defecto del servidor»</b>, se usa la clave global del servidor (.env). La API key se guarda cifrada aparte y nunca se muestra.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem' }}>
+                <label style={labelS}>Proveedor
+                  <select style={input} value={llm.provider} onChange={(e) => {
+                    const p = e.target.value; const def = LLM_PROVIDERS.find((x) => x.id === p);
+                    setLlm({ ...llm, provider: p, model: def?.model || '' });
+                  }}>
+                    {LLM_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </label>
+                {llm.provider && (
+                  <label style={labelS}>Modelo
+                    <input style={input} placeholder={LLM_PROVIDERS.find((x) => x.id === llm.provider)?.model || 'nombre del modelo'} value={llm.model} onChange={(e) => setLlm({ ...llm, model: e.target.value })} />
+                  </label>
+                )}
+                {llm.provider === 'custom' && (
+                  <label style={labelS}>URL base (endpoint)
+                    <input style={input} placeholder="https://.../v1" value={llm.baseUrl} onChange={(e) => setLlm({ ...llm, baseUrl: e.target.value })} />
+                  </label>
+                )}
+                {llm.provider && (
+                  <label style={labelS}>API key {llmKeySet && <span style={{ color: '#059669', fontSize: '0.72rem' }}>· configurada</span>}
+                    <input style={input} type="password" placeholder={llmKeySet ? '•••••••• (vacío = no cambiar)' : 'Introduce la API key'} value={llmKey} onChange={(e) => setLlmKey(e.target.value)} />
+                  </label>
+                )}
+              </div>
+              {llm.provider === 'gemini' && <p style={{ fontSize: '0.72rem', color: '#6b7280', margin: '0.5rem 0 0' }}>Gemini: crea la key en Google AI Studio (aistudio.google.com). Modelos: gemini-2.0-flash, gemini-2.5-flash, gemini-2.5-pro.</p>}
             </div>
 
             {/* Opciones */}

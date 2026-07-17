@@ -1,5 +1,5 @@
 const { getTenantRuntime } = require('./tenants/registry');
-const { buildLlmResponse } = require('./llm/openai-agent');
+const { buildLlmResponse, resolveLlm } = require('./llm/openai-agent');
 
 // Detección simple de intención por palabras clave → entidad canónica.
 // (Placeholder hasta enchufar un LLM con tool-calling en la Fase 4 del plan.)
@@ -56,7 +56,9 @@ async function buildAgentResponse(params) {
 
   let response;
   let llmError = null;
-  if (process.env.OPENAI_API_KEY) {
+  // ¿Hay IA disponible para este cliente? (su propia config, o la global del .env)
+  const hasLlm = !!resolveLlm(activeRuntime);
+  if (hasLlm) {
     try {
       response = await buildLlmResponse(enriched);
     } catch (err) {

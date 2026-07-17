@@ -4,6 +4,35 @@ const { buildToolDefinitions, runTool } = require('./tools');
 // Máximo de rondas de tool-calling por pregunta (evita bucles infinitos).
 const MAX_STEPS = 14;
 
+// Proveedores de LLM soportados. Todos hablan la API de OpenAI (nativa o vía su
+// endpoint compatible), así que sirve el mismo SDK: solo cambia baseURL y modelo.
+const LLM_PROVIDERS = {
+  openai: { baseUrl: null, defaultModel: 'gpt-4o' },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', defaultModel: 'gemini-2.0-flash' },
+  groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile' },
+  deepseek: { baseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-chat' },
+  custom: { baseUrl: null, defaultModel: 'gpt-4o' }
+};
+
+// Config EFECTIVA de LLM: primero la del cliente (si tiene proveedor + apiKey),
+// si no la global del .env. Devuelve null si no hay ninguna → sin IA.
+function resolveLlm(runtime) {
+  const t = (runtime && runtime.llm) || {};
+  if (t.provider && t.apiKey) {
+    const p = LLM_PROVIDERS[t.provider] || {};
+    const baseURL = (t.provider === 'custom' ? t.baseUrl : p.baseUrl) || undefined;
+    return { apiKey: t.apiKey, baseURL, model: t.model || p.defaultModel || 'gpt-4o' };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      model: process.env.OPENAI_MODEL || 'gpt-4o'
+    };
+  }
+  return null;
+}
+
 function systemPrompt(runtime, tenantName, prompt) {
   const t = runtime?.tenant || {};
   return [
@@ -45,8 +74,12 @@ function stripTables(text) {
 }
 
 async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, history }) {
-  const client = new OpenAI(); // lee OPENAI_API_KEY del entorno
-  const model = process.env.OPENAI_MODEL || 'gpt-4o';
+  // Config de LLM del cliente (o la global del .env). Puede apuntar a OpenAI o a
+  // cualquier proveedor COMPATIBLE (Gemini, Groq, DeepSeek…): mismo SDK, otra baseURL.
+  const llm = resolveLlm(runtime);
+  if (!llm) throw new Error('No hay ningún LLM configurado (ni para el cliente ni en el .env).');
+  const client = new OpenAI({ apiKey: llm.apiKey, baseURL: llm.baseURL });
+  const model = llm.model;
   const tenantName = tenant?.name || runtime?.tenant?.name || 'cliente';
 
   const tools = buildToolDefinitions(runtime);
@@ -127,4 +160,4 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
   };
 }
 
-module.exports = { buildLlmResponse };
+module.exports = { buildLlmResponse, resolveLlm, LLM_PROVIDERS };

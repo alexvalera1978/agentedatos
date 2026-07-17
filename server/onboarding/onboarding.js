@@ -86,11 +86,14 @@ function saveUpload(filename, dataBase64) {
 }
 
 // Devuelve la config cruda del tenant (con ${VAR} sin resolver → sin secretos).
+// Añade `llmKeySet` (¿hay API key de LLM guardada?) SIN devolver la clave.
 function getTenant(tenantId) {
-  return store.getTenantConfigRaw(tenantId);
+  const raw = store.getTenantConfigRaw(tenantId);
+  if (!raw) return null;
+  return { ...raw, llmKeySet: !!store.getTenantSecrets(tenantId).llmApiKey };
 }
 
-// Actualiza campos editables del tenant (prompt/guía, mappings, datos del tenant).
+// Actualiza campos editables del tenant (prompt/guía, mappings, datos del tenant, LLM).
 function updateTenant(tenantId, patch = {}) {
   const config = store.getTenantConfigRaw(tenantId);
   if (!config) throw new Error(`Tenant no encontrado: ${tenantId}`);
@@ -98,8 +101,22 @@ function updateTenant(tenantId, patch = {}) {
   if (patch.mappings !== undefined) config.mappings = patch.mappings;
   if (patch.charts !== undefined) config.charts = patch.charts;
   if (patch.tenant) config.tenant = { ...config.tenant, ...patch.tenant };
+  if (patch.llm !== undefined) {
+    // Solo la parte NO secreta (proveedor/modelo/URL). La API key va aparte (setLlmKey).
+    const l = patch.llm || {};
+    config.llm = { provider: l.provider || '', model: l.model || '', baseUrl: l.baseUrl || '' };
+  }
   store.saveTenantConfig(config);
-  return config;
+  return getTenant(tenantId);
+}
+
+// Guarda (o borra, si viene vacía) la API key del LLM del cliente, FUERA del JSON
+// (en el store de secretos gitignoreado). No se devuelve nunca al frontend.
+function setLlmKey(tenantId, apiKey) {
+  if (!store.getTenantConfigRaw(tenantId)) throw new Error(`Tenant no encontrado: ${tenantId}`);
+  const key = String(apiKey || '').trim();
+  store.saveTenantSecrets(tenantId, { llmApiKey: key });
+  return { llmKeySet: !!key };
 }
 
 // Lista tablas/recursos del origen. Para SQL (con executeSql) introspecciona las
@@ -163,6 +180,7 @@ module.exports = {
   saveMappings,
   getTenant,
   updateTenant,
+  setLlmKey,
   discoverTables,
   describeTable,
   saveUpload,

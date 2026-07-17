@@ -9,6 +9,10 @@ npm-debug.log*
 server/data/uploads/
 scripts/results*.json
 
+# Claves por cliente (API keys de LLM, etc.) — NUNCA al repo
+secrets.json
+server/data/tenants/secrets.json
+
 # Sistema
 .DS_Store
 Thumbs.db

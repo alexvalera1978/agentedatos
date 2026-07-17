@@ -17,7 +17,8 @@ function buildRuntime(config) {
     mappings: config.mappings || [],
     tools: config.tools || [],
     prompt: config.prompt,
-    charts: config.charts === true
+    charts: config.charts === true,
+    llm: config.llm || null
   });
 }
 

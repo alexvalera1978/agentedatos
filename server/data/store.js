@@ -41,10 +41,35 @@ function getTenantConfigRaw(id) {
   return readRaw(id);
 }
 
+// --- Secretos por cliente (API keys de LLM, etc.) ---
+// Se guardan APARTE del JSON del tenant, en un fichero gitignoreado, para que las
+// claves NO acaben en git (el JSON del tenant sí viaja por git en el despliegue).
+function secretsFile() {
+  return path.join(dir(), 'secrets.json');
+}
+function readSecrets() {
+  try { return JSON.parse(fs.readFileSync(secretsFile(), 'utf8')); } catch { return {}; }
+}
+function getTenantSecrets(id) {
+  return readSecrets()[id] || {};
+}
+function saveTenantSecrets(id, patch) {
+  ensureDir();
+  const all = readSecrets();
+  all[id] = { ...(all[id] || {}), ...patch };
+  fs.writeFileSync(secretsFile(), `${JSON.stringify(all, null, 2)}\n`);
+  return all[id];
+}
+
 // Versión resuelta (secretos ya sustituidos) — para EJECUTAR en runtime.
 function getTenantConfig(id) {
   const raw = readRaw(id);
-  return raw ? resolveEnv(raw) : null;
+  if (!raw) return null;
+  const cfg = resolveEnv(raw);
+  // Inyecta la API key del LLM (guardada aparte) en la config del LLM del tenant.
+  const secrets = getTenantSecrets(id);
+  if (secrets.llmApiKey) cfg.llm = { ...(cfg.llm || {}), apiKey: secrets.llmApiKey };
+  return cfg;
 }
 
 function listTenantConfigs() {
@@ -75,5 +100,7 @@ module.exports = {
   listTenantConfigs,
   saveTenantConfig,
   deleteTenantConfig,
-  resolveEnv
+  resolveEnv,
+  getTenantSecrets,
+  saveTenantSecrets
 };
