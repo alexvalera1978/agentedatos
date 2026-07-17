@@ -6,7 +6,7 @@ test('resolveLlm usa la config del cliente (Gemini) cuando tiene proveedor y key
   const r = resolveLlm({ llm: { provider: 'gemini', apiKey: 'k-123', model: '' } });
   assert.strictEqual(r.apiKey, 'k-123');
   assert.strictEqual(r.baseURL, 'https://generativelanguage.googleapis.com/v1beta/openai/');
-  assert.strictEqual(r.model, 'gemini-2.0-flash'); // modelo por defecto del proveedor
+  assert.strictEqual(r.model, 'gemini-2.5-flash'); // modelo por defecto del proveedor
 });
 
 test('resolveLlm respeta el modelo elegido y el baseUrl en "custom"', () => {

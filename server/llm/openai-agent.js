@@ -8,7 +8,7 @@ const MAX_STEPS = 14;
 // endpoint compatible), así que sirve el mismo SDK: solo cambia baseURL y modelo.
 const LLM_PROVIDERS = {
   openai: { baseUrl: null, defaultModel: 'gpt-4o' },
-  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', defaultModel: 'gemini-2.0-flash' },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', defaultModel: 'gemini-2.5-flash' },
   groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile' },
   deepseek: { baseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-chat' },
   custom: { baseUrl: null, defaultModel: 'gpt-4o' }

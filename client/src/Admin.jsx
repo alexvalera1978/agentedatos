@@ -24,7 +24,7 @@ const ENTIDADES = ['orders', 'customers', 'products', 'inventory', 'invoices', '
 const LLM_PROVIDERS = [
   { id: '', label: 'Por defecto del servidor (.env)', model: '' },
   { id: 'openai', label: 'OpenAI', model: 'gpt-4o' },
-  { id: 'gemini', label: 'Google Gemini', model: 'gemini-2.0-flash' },
+  { id: 'gemini', label: 'Google Gemini', model: 'gemini-2.5-flash' },
   { id: 'groq', label: 'Groq', model: 'llama-3.3-70b-versatile' },
   { id: 'deepseek', label: 'DeepSeek', model: 'deepseek-chat' },
   { id: 'custom', label: 'Personalizado (compatible OpenAI)', model: '' }
