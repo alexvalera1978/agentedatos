@@ -3,6 +3,7 @@ const cors = require('cors');
 const { buildAgentResponse } = require('./agent');
 const { getTenantRuntime, listTenants } = require('./tenants/registry');
 const onboarding = require('./onboarding/onboarding');
+const auth = require('./auth');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -16,6 +17,26 @@ const wrap = (handler) => (req, res) => {
     res.status(400).json({ status: 'error', message: err.message })
   );
 };
+
+// --- Autenticación (contraseña única) ---
+
+// ¿Hace falta login? (el frontend lo consulta al arrancar). Público.
+app.get('/api/auth/status', (_req, res) => {
+  res.json({ authRequired: auth.enabled() });
+});
+
+// Iniciar sesión con la contraseña compartida → devuelve un token. Público.
+app.post('/api/login', (req, res) => {
+  const { password } = req.body || {};
+  if (!auth.checkPassword(password)) {
+    return res.status(401).json({ status: 'error', message: 'Contraseña incorrecta.' });
+  }
+  res.json({ token: auth.issueToken() });
+});
+
+// A partir de aquí, /api/* exige token válido (salvo login y status, ya definidos
+// arriba). El frontend estático y /health quedan públicos.
+app.use(auth.middleware);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'AgenteDatos API', tenants: listTenants() });

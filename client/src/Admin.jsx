@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authFetch } from './auth';
 
 const box = { border: '1px solid #e5e7eb', borderRadius: '12px', padding: '1rem', background: '#fff', marginBottom: '1rem' };
 const input = { padding: '0.5rem', borderRadius: '8px', border: '1px solid #d1d5db', width: '100%', boxSizing: 'border-box' };
@@ -29,9 +30,9 @@ const KINDS = {
 
 async function api(path, method = 'GET', body) {
   let res;
-  // ngrok-skip-browser-warning evita la página intersticial de ngrok en las llamadas fetch.
-  const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
-  try { res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined }); }
+  // ngrok-skip-browser-warning evita la página intersticial de ngrok; authFetch añade el token.
+  const headers = { 'Content-Type': 'application/json' };
+  try { res = await authFetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined }); }
   catch { throw new Error('sin conexión con el servidor (¿backend arrancado?)'); }
   const text = await res.text();
   let data = {};

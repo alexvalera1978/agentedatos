@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { authFetch, fetchAuthStatus, login as doLogin, logout as doLogout, getToken } from './auth';
 import Admin from './Admin';
 import Chart from './Chart';
 
@@ -103,8 +104,43 @@ const S = {
   inputBar: { display: 'flex', gap: '0.6rem', padding: '0.9rem 1.4rem', borderTop: '1px solid #e5e7eb', background: '#fff', alignItems: 'flex-end' },
   input: { flex: 1, padding: '0.85rem 1rem', borderRadius: 12, border: '1px solid #d1d5db', fontSize: '1rem', resize: 'none', fontFamily: 'inherit', maxHeight: 120 },
   sendBtn: { width: 48, height: 48, borderRadius: 12, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer', fontSize: '1.2rem' },
-  footer: { textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8', padding: '0.4rem' }
+  footer: { textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8', padding: '0.4rem' },
+  loginWrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b1220', padding: '1rem' },
+  loginCard: { width: '100%', maxWidth: 360, background: '#fff', borderRadius: 16, padding: '2rem', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' },
+  loginInput: { width: '100%', padding: '0.75rem 0.9rem', borderRadius: 10, border: '1px solid #d1d5db', fontSize: '1rem', boxSizing: 'border-box' },
+  loginBtn: { width: '100%', padding: '0.8rem', borderRadius: 10, border: 'none', background: '#2563eb', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', marginTop: '0.9rem' }
 };
+
+function Login({ onOk }) {
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!pw || busy) return;
+    setBusy(true); setErr('');
+    try { await doLogin(pw); onOk(); }
+    catch (e) { setErr(e.message || 'Contraseña incorrecta.'); setBusy(false); }
+  };
+  return (
+    <div style={S.loginWrap}>
+      <div style={S.loginCard}>
+        <div style={{ textAlign: 'center', marginBottom: '1.4rem' }}>
+          <div style={{ fontSize: '2.4rem' }}>🤖</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a' }}>{BRAND} <span style={{ ...S.brandSub, color: '#94a3b8' }}>{BRAND_SUB}</span></div>
+          <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.3rem' }}>Agente de datos de negocio</div>
+        </div>
+        <label style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 600 }}>Contraseña</label>
+        <input style={{ ...S.loginInput, marginTop: '0.35rem' }} type="password" autoFocus value={pw}
+          onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          placeholder="Introduce la contraseña" />
+        {err && <div style={{ color: '#991b1b', fontSize: '0.82rem', marginTop: '0.5rem' }}>⚠️ {err}</div>}
+        <button style={{ ...S.loginBtn, opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>
+          {busy ? 'Entrando…' : 'Entrar'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function DataTable({ data }) {
   if (!data || data.length === 0) return null;
@@ -177,15 +213,30 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState('');
   const [teaching, setTeaching] = useState(false);
+  // authReq: ¿el servidor pide login? (null = aún comprobando). authed: sesión válida.
+  const [authReq, setAuthReq] = useState(null);
+  const [authed, setAuthed] = useState(false);
   const msgsRef = useRef(null);
 
+  // Al arrancar: ¿hace falta login? Si no, entra directo; si sí, entra solo con token guardado.
   useEffect(() => {
-    fetch('/api/tenants', { headers: { 'ngrok-skip-browser-warning': 'true' } }).then((r) => r.json()).then((d) => {
+    fetchAuthStatus().then((req) => {
+      setAuthReq(req);
+      setAuthed(!req || !!getToken());
+    });
+    const onExpired = () => { setAuthed(false); };
+    window.addEventListener('auth-expired', onExpired);
+    return () => window.removeEventListener('auth-expired', onExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!authed) return;
+    authFetch('/api/tenants').then((r) => r.json()).then((d) => {
       const list = d.tenants || [];
       setTenants(list);
       setTenantId((prev) => (list.some((t) => t.id === prev) ? prev : (list[0]?.id || '')));
     }).catch(() => {});
-  }, [view]);
+  }, [view, authed]);
 
   useEffect(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight; }, [messages, loading]);
 
@@ -205,7 +256,7 @@ export default function App() {
     setLoading(true);
     const t0 = Date.now();
     try {
-      const res = await fetch('/api/agent/query', { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: JSON.stringify({ question: q, tenantId, history: hist }) });
+      const res = await authFetch('/api/agent/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, tenantId, history: hist }) });
       const text = await res.text();
       const data = text ? JSON.parse(text) : null;
       const r = data || { status: 'error', text: 'El servidor no respondió. ¿Está arrancado el backend (npm run dev)?' };
@@ -222,7 +273,7 @@ export default function App() {
     const h = hint.trim();
     if (!h || !tenantId) return;
     try {
-      const res = await fetch(`/api/tenants/${tenantId}/hint`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: JSON.stringify({ hint: h }) });
+      const res = await authFetch(`/api/tenants/${tenantId}/hint`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hint: h }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'error');
       setHint(''); setTeaching(false);
       setMessages((m) => [...m, { role: 'assistant', text: '👍 Aprendido. Lo tendré en cuenta a partir de ahora para este cliente.', status: 'ok' }]);
@@ -230,6 +281,17 @@ export default function App() {
       setMessages((m) => [...m, { role: 'assistant', text: 'No pude guardar la pista: ' + e.message, status: 'error' }]);
     }
   };
+
+  // Pantalla de carga mientras se comprueba si hace falta login.
+  if (authReq === null) {
+    return <div style={{ ...S.loginWrap, color: '#64748b' }}>Cargando…</div>;
+  }
+  // Login: si el servidor pide contraseña y no hay sesión válida.
+  if (authReq && !authed) {
+    return <Login onOk={() => setAuthed(true)} />;
+  }
+
+  const logout = () => { doLogout(); setMessages([]); setView('chat'); };
 
   if (view === 'admin') {
     return (
@@ -273,6 +335,7 @@ export default function App() {
 
         <div style={{ flex: 1 }} />
         <button style={S.sideBtn} onClick={() => setView('admin')}>⚙️ Administración</button>
+        {authReq && <button style={S.sideBtn} onClick={logout}>🔒 Cerrar sesión</button>}
         <div style={S.user}><span style={{ ...S.avatar, background: '#334155', color: '#fff', width: 30, height: 30 }}>👤</span> {tenantName || 'Cliente'}</div>
       </aside>
 
