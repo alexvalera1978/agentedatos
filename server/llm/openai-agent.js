@@ -50,6 +50,7 @@ function systemPrompt(runtime, tenantName, prompt) {
     'Basas tus respuestas SOLO en los datos que obtienes con las herramientas: nunca inventes cifras.',
     'La tabla de datos (y el gráfico si aplica) se muestran al usuario aparte, automáticamente. Por eso tu TEXTO debe ser SOLO un resumen breve en prosa: el total, 2-3 valores/clientes destacados y una conclusión corta. NUNCA escribas tablas (ni en markdown con | y -), ni listados fila por fila, ni repitas todos los registros: eso ya está en la tabla.',
     'Si necesitas datos, decide qué herramienta usar. Puedes encadenar varias llamadas.',
+    'CRÍTICO: NO anuncies lo que vas a hacer ni escribas frases de relleno como "vamos a ello", "déjame consultar", "un momento" o "ahora lo hago". Si la pregunta requiere datos, tu turno debe ser DIRECTAMENTE una llamada a herramienta (sin texto previo). Solo escribe prosa cuando YA tengas los datos y sea tu respuesta final.',
     'Para preguntas simples usa "consultar" con un recurso. Para agregados, filtros o preguntas nuevas usa "ejecutar_sql".',
     'IMPORTANTE: en ejecutar_sql, los nombres de recurso (inventory, products, customers, orders) NO son tablas reales; son etiquetas lógicas. Debes usar TABLAS REALES del ERP. Si no conoces la tabla o sus columnas, descúbrelas primero con listar_tablas(patron) y describir_tabla(tabla), y luego escribe el SQL.',
     'Es SQL Server / T-SQL: usa TOP en vez de LIMIT. Si un SQL falla (HTTP 400 o error), NO te rindas: corrige el nombre de tabla/columna o la sintaxis (descúbrelos) y reintenta con otra consulta.',
@@ -100,6 +101,13 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
   const ctx = { collected: [], usedDataSource: null, sources: new Map(), learned: false, notas: new Set() };
   const sourcesList = () => [...ctx.sources].map(([name, kind]) => ({ name, kind }));
 
+  // Algunos modelos (p. ej. Gemini) a veces "anuncian" que van a consultar y no
+  // llaman a la herramienta. Si sueltan ese preámbulo sin datos, les insistimos.
+  let nudges = 0;
+  const looksLikePreamble = (txt) =>
+    /(:\s*$|vamos a|voy a|d[eé]jame|un momento|enseguida|procedo|ahora (mismo|lo hago)|empecemos|manos a la obra)/i.test(String(txt || '').trim())
+    && String(txt || '').trim().length < 500;
+
   for (let step = 0; step < MAX_STEPS; step++) {
     const completion = await client.chat.completions.create({
       model,
@@ -111,6 +119,12 @@ async function buildLlmResponse({ tenantId, question, tenant, prompt, runtime, h
     messages.push(msg);
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      // ¿Es un preámbulo ("vamos a ello") sin haber traído datos aún? Insiste una vez.
+      if (ctx.collected.length === 0 && nudges < 2 && looksLikePreamble(msg.content)) {
+        nudges++;
+        messages.push({ role: 'user', content: 'No anuncies lo que vas a hacer: llama YA a las herramientas necesarias para obtener los datos y responde solo cuando los tengas.' });
+        continue;
+      }
       return {
         tenantId,
         tenantName,
