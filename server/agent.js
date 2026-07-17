@@ -26,16 +26,28 @@ function inferEntity(question = '') {
 }
 
 // Respuesta clara cuando la IA está configurada pero su llamada falla (no degradar
-// a palabras clave). Distingue el caso de CUOTA agotada (429) para dar un mensaje útil.
-function llmUnavailableResponse(params, activeRuntime, err) {
+// a palabras clave). Nombra el proveedor REAL que falló (no siempre OpenAI) e
+// incluye un fragmento del error, para poder diagnosticar sin mirar el log.
+const LLM_NAMES = { gemini: 'Google Gemini', openai: 'OpenAI', groq: 'Groq', deepseek: 'DeepSeek', custom: 'el proveedor personalizado', global: 'OpenAI (clave global del .env)' };
+function llmUnavailableResponse(params, activeRuntime, err, llm) {
   const msg = String(err && err.message || '');
-  const quota = /quota|429|billing|insufficient|exceeded/i.test(msg);
+  const quota = /quota|429|billing|insufficient|exceeded|rate.?limit|exhausted/i.test(msg);
+  const auth = /401|403|api key|api_key|invalid|permission|unauthenticated/i.test(msg);
+  const prov = LLM_NAMES[llm && llm.provider] || 'el proveedor de IA';
+  const model = llm && llm.model ? ` (modelo ${llm.model})` : '';
+  const detail = msg ? ` — Detalle técnico: ${msg.slice(0, 200)}` : '';
+  let text;
+  if (auth && !quota) {
+    text = `El asistente de IA no está disponible: ${prov}${model} rechazó la API key (inválida o sin permisos). Revisa la clave en Administración → «Modelo de IA».${detail}`;
+  } else if (quota) {
+    text = `El asistente de IA no está disponible: ${prov}${model} ha devuelto un error de cuota o límite de uso (429). Revisa el crédito, el plan o los límites de ${prov}.${detail}`;
+  } else {
+    text = `El asistente de IA (${prov}${model}) no está disponible ahora mismo por un error temporal. Inténtalo de nuevo en unos minutos.${detail}`;
+  }
   return {
     tenantId: params.tenantId,
     tenantName: params.tenant?.name || activeRuntime?.tenant?.name || 'cliente',
-    text: quota
-      ? 'El asistente de IA no está disponible ahora mismo: la cuenta de OpenAI ha agotado su cuota o crédito. Revisa el plan y la facturación en platform.openai.com; en cuanto haya crédito, volveré a responder con normalidad.'
-      : 'El asistente de IA no está disponible ahora mismo por un problema temporal de conexión con OpenAI. Inténtalo de nuevo en unos minutos.',
+    text,
     targetEntity: null,
     usedDataSource: null,
     sources: [],
@@ -90,7 +102,7 @@ async function buildAgentResponse(params) {
       // La IA ESTÁ configurada pero la llamada falló (cuota/429, red, API caída…).
       // NO degradamos a palabras clave: ese motor da resultados sin sentido para
       // preguntas analíticas (volcaría la tabla cruda de pedidos con cifras absurdas).
-      response = llmUnavailableResponse(params, activeRuntime, llmError);
+      response = llmUnavailableResponse(params, activeRuntime, llmError, llm);
     } else {
       // No hay ningún LLM configurado: modo offline por palabras clave (a propósito).
       response = await buildKeywordResponse(enriched);
