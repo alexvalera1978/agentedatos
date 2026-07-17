@@ -25,6 +25,26 @@ function inferEntity(question = '') {
   return 'orders';
 }
 
+// Respuesta clara cuando la IA está configurada pero su llamada falla (no degradar
+// a palabras clave). Distingue el caso de CUOTA agotada (429) para dar un mensaje útil.
+function llmUnavailableResponse(params, activeRuntime, err) {
+  const msg = String(err && err.message || '');
+  const quota = /quota|429|billing|insufficient|exceeded/i.test(msg);
+  return {
+    tenantId: params.tenantId,
+    tenantName: params.tenant?.name || activeRuntime?.tenant?.name || 'cliente',
+    text: quota
+      ? 'El asistente de IA no está disponible ahora mismo: la cuenta de OpenAI ha agotado su cuota o crédito. Revisa el plan y la facturación en platform.openai.com; en cuanto haya crédito, volveré a responder con normalidad.'
+      : 'El asistente de IA no está disponible ahora mismo por un problema temporal de conexión con OpenAI. Inténtalo de nuevo en unos minutos.',
+    targetEntity: null,
+    usedDataSource: null,
+    sources: [],
+    data: [],
+    status: 'error',
+    engine: 'llm_unavailable'
+  };
+}
+
 /**
  * Punto de entrada del motor. Si hay un LLM configurado (OPENAI_API_KEY), lo usa
  * para interpretar CUALQUIER pregunta vía tool-calling. Si no, cae al motor por
@@ -35,15 +55,27 @@ async function buildAgentResponse(params) {
   const enriched = { ...params, runtime: activeRuntime };
 
   let response;
+  let llmError = null;
   if (process.env.OPENAI_API_KEY) {
     try {
       response = await buildLlmResponse(enriched);
     } catch (err) {
-      // Si el LLM falla (cuota, red, etc.), degradamos al motor por palabras clave.
-      console.error('[agent] LLM falló, usando fallback por palabras clave:', err.message);
+      llmError = err;
+      console.error('[agent] LLM falló:', err.message);
     }
   }
-  if (!response) response = await buildKeywordResponse(enriched);
+  if (!response) {
+    if (llmError) {
+      // La IA ESTÁ configurada pero la llamada falló (cuota/429, red, API caída…).
+      // NO degradamos a palabras clave: ese motor da resultados sin sentido para
+      // preguntas analíticas (volcaría la tabla cruda de pedidos con cifras absurdas).
+      // Mejor un aviso claro de que la IA no está disponible ahora mismo.
+      response = llmUnavailableResponse(params, activeRuntime, llmError);
+    } else {
+      // No hay clave de IA configurada: modo offline por palabras clave (a propósito).
+      response = await buildKeywordResponse(enriched);
+    }
+  }
 
   // Flag de gráficos del tenant, para que el frontend decida si graficar.
   response.charts = !!(activeRuntime && activeRuntime.charts);
