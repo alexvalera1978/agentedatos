@@ -2,6 +2,8 @@
 // Uso:  node scripts/buscar-articulo.js <palabra> [tenantId]
 //   ej: node scripts/buscar-articulo.js manhattan
 //       node scripts/buscar-articulo.js mahatan
+// Carga el .env (para tener la API key del ERP), como hace el servidor.
+try { process.loadEnvFile(); } catch { /* Node<20.12 o sin .env: se ignora */ }
 const { getTenantRuntime } = require('../server/tenants/registry');
 const { runTool } = require('../server/llm/tools');
 
