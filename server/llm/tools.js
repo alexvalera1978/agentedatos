@@ -671,7 +671,20 @@ async function runTool(runtime, name, args, ctx) {
       };
     });
 
-    if (filtro) filas = filas.filter((f) => f.articulo.toLowerCase().includes(filtro) || String(f.producto).toLowerCase().includes(filtro));
+    if (filtro) {
+      // Búsqueda flexible: el nombre que dice el usuario ("blazer Manhattan") no
+      // suele coincidir literal con el ERP/Shopify. Buscamos por palabras y, si nada
+      // cuadra con todas, por la MÁS DISTINTIVA (la más larga: el nombre del modelo).
+      const has = (f, w) => f.articulo.toLowerCase().includes(w) || String(f.producto).toLowerCase().includes(w);
+      const words = filtro.split(/\s+/).filter((w) => w.length >= 3);
+      let m = words.length ? filas.filter((f) => words.every((w) => has(f, w))) : [];
+      if (!m.length && words.length) {
+        const key = words.slice().sort((a, b) => b.length - a.length)[0];
+        m = filas.filter((f) => has(f, key));
+      }
+      if (!m.length) m = filas.filter((f) => has(f, filtro)); // último recurso: término completo (código)
+      filas = m;
+    }
     else filas = filas.filter((f) => f.unidades_dia > 0); // en general: solo lo que se vende (riesgo de agotarse)
     filas.sort((a, b) => (a.dias_cobertura ?? 1e9) - (b.dias_cobertura ?? 1e9)); // lo que antes se agota, primero
     filas = filas.slice(0, Math.min(Number(args.limite) || 15, 50));
