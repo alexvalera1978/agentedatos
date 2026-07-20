@@ -154,7 +154,7 @@ function buildToolDefinitions(runtime) {
       function: {
         name: 'productos_mas_vendidos_shopify',
         description:
-          'Devuelve las PRENDAS/PRODUCTOS más vendidos a cliente final (B2C) en un periodo, desde las líneas de los pedidos de Shopify. Ordena por unidades o por importe. Puede filtrar por temporada (prefijo del SKU, p. ej. "24"). Fechas AAAA-MM-DD en hora España.',
+          'Devuelve las PRENDAS/PRODUCTOS más vendidos a cliente final (B2C) en un periodo, desde las líneas de los pedidos de Shopify. Ordena por unidades o por importe. Puede filtrar por temporada (prefijo del SKU, p. ej. "24"). IMPORTANTE: para las ventas de UN producto concreto ("cuánto he vendido de X"), pasa "producto" con su nombre o palabra clave (p. ej. "Manhattan"): así devuelve SOLO ese producto (tabla y texto coinciden), no todo el ranking. Fechas AAAA-MM-DD en hora España.',
         parameters: {
           type: 'object',
           properties: {
@@ -162,6 +162,7 @@ function buildToolDefinitions(runtime) {
             hasta: { type: 'string', description: 'Fecha fin AAAA-MM-DD (incluida)' },
             ordenar_por: { type: 'string', enum: ['unidades', 'importe'], description: 'Criterio de ranking (por defecto unidades)' },
             temporada: { type: 'string', description: 'Código de temporada para filtrar (opcional, p. ej. "24" o "25")' },
+            producto: { type: 'string', description: 'Nombre o palabra clave de UN producto para ver solo sus ventas (opcional, p. ej. "Manhattan")' },
             limite: { type: 'integer', description: 'Cuántos productos devolver (por defecto 10)' }
           },
           required: ['desde', 'hasta'],
@@ -413,11 +414,14 @@ async function runTool(runtime, name, args, ctx) {
       to: args.hasta,
       limit: Math.min(Number(args.limite) || 10, 50),
       by: args.ordenar_por === 'importe' ? 'importe' : 'unidades',
-      temporada: args.temporada
+      temporada: args.temporada,
+      producto: args.producto
     });
     if (ctx.sources) ctx.sources.set(connector.name, connector.kind);
     ctx.usedDataSource = ctx.usedDataSource || connector.name;
-    nota(ctx, `Más vendidos según pedidos de Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}, por ${args.ordenar_por === 'importe' ? 'importe' : 'unidades'}${args.temporada ? `, temporada ${args.temporada}` : ''}.`);
+    nota(ctx, args.producto
+      ? `Ventas de "${args.producto}" según pedidos de Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}.`
+      : `Más vendidos según pedidos de Shopify del ${fmtFecha(args.desde)} al ${fmtFecha(args.hasta)}, por ${args.ordenar_por === 'importe' ? 'importe' : 'unidades'}${args.temporada ? `, temporada ${args.temporada}` : ''}.`);
     const arr = summary.filas || [];
     if (arr.length > ctx.collected.length) ctx.collected = arr;
     return summary;

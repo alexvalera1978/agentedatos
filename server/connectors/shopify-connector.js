@@ -256,7 +256,7 @@ class ShopifyConnector extends ConnectorBase {
 
   // Prendas más vendidas en el periodo (por unidades o importe), desde las líneas de los pedidos.
   // El nombre de producto es el mismo que en el ERP. temporada (opcional) filtra por prefijo de SKU.
-  async topProducts({ from, to, limit = 10, by = 'unidades', temporada } = {}) {
+  async topProducts({ from, to, limit = 10, by = 'unidades', temporada, producto } = {}) {
     const orders = await this.fetchOrders({ from, to, fields: 'id,created_at,source_name,cancelled_at,line_items' });
     const rows = orders.filter((o) => this._isSaleOrder(o, { from, to }));
     const tPref = temporada ? String(temporada) : null;
@@ -272,11 +272,23 @@ class ShopifyConnector extends ConnectorBase {
       }
     }
     const r2 = (n) => Math.round(n * 100) / 100;
-    const filas = [...acc.values()]
+    let list = [...acc.values()];
+    // Filtro por UN producto (para "cuánto he vendido de X"): búsqueda flexible por
+    // palabras y, si nada cuadra con todas, por la más distintiva (el nombre del modelo).
+    if (producto) {
+      const f = String(producto).toLowerCase();
+      const has = (p, w) => p.producto.toLowerCase().includes(w);
+      const words = f.split(/\s+/).filter((w) => w.length >= 3);
+      let m = words.length ? list.filter((p) => words.every((w) => has(p, w))) : [];
+      if (!m.length && words.length) { const key = words.slice().sort((a, b) => b.length - a.length)[0]; m = list.filter((p) => has(p, key)); }
+      if (!m.length) m = list.filter((p) => has(p, f));
+      list = m;
+    }
+    const filas = list
       .sort((x, y) => (by === 'importe' ? y.importe - x.importe : y.unidades - x.unidades))
       .slice(0, limit)
       .map((a) => ({ producto: a.producto, unidades: a.unidades, importe: r2(a.importe) }));
-    return { desde: from, hasta: to, ordenado_por: by, temporada: temporada || null, truncado: this._truncated === true, filas };
+    return { desde: from, hasta: to, ordenado_por: by, temporada: temporada || null, producto: producto || null, truncado: this._truncated === true, filas };
   }
 
   // Ventas agregadas por CÓDIGO DE ARTÍCULO (2º segmento del SKU "temporada/articulo/color/talla"),
