@@ -9,6 +9,9 @@ npm-debug.log*
 server/data/uploads/
 scripts/results*.json
 
+# Registro de conversaciones (datos del negocio / posible info de clientes)
+server/data/chats/
+
 # Config LOCAL de cada cliente (la edita la app; NO debe ir por git para no
 # pisar la config de cada entorno ni provocar conflictos al desplegar).
 # La GUÍA del agente sí se versiona, en server/data/guides/<id>.txt.

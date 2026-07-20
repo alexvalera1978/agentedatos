@@ -213,6 +213,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState('');
   const [teaching, setTeaching] = useState(false);
+  // Id de conversación (agrupa los mensajes de un mismo chat en el registro).
+  const newConvId = () => (window.crypto?.randomUUID?.() || `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const [conversationId, setConversationId] = useState(newConvId);
   // authReq: ¿el servidor pide login? (null = aún comprobando). authed: sesión válida.
   const [authReq, setAuthReq] = useState(null);
   const [authed, setAuthed] = useState(false);
@@ -243,8 +246,8 @@ export default function App() {
   const tenantName = tenants.find((t) => t.id === tenantId)?.name || '';
   const firstQ = messages.find((m) => m.role === 'user')?.text;
 
-  const changeTenant = (id) => { setTenantId(id); setMessages([]); };
-  const newChat = () => setMessages([]);
+  const changeTenant = (id) => { setTenantId(id); setMessages([]); setConversationId(newConvId()); };
+  const newChat = () => { setMessages([]); setConversationId(newConvId()); };
 
   const send = async () => {
     const q = input.trim();
@@ -256,7 +259,7 @@ export default function App() {
     setLoading(true);
     const t0 = Date.now();
     try {
-      const res = await authFetch('/api/agent/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, tenantId, history: hist }) });
+      const res = await authFetch('/api/agent/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, tenantId, history: hist, conversationId }) });
       const text = await res.text();
       const data = text ? JSON.parse(text) : null;
       const r = data || { status: 'error', text: 'El servidor no respondió. ¿Está arrancado el backend (npm run dev)?' };

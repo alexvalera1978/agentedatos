@@ -4,6 +4,7 @@ const { buildAgentResponse } = require('./agent');
 const { getTenantRuntime, listTenants } = require('./tenants/registry');
 const onboarding = require('./onboarding/onboarding');
 const auth = require('./auth');
+const chatLog = require('./data/chat-log');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -133,7 +134,7 @@ app.put('/api/tenants/:id/mappings', wrap((req, res) => {
 // --- Agente ---
 
 app.post('/api/agent/query', wrap(async (req, res) => {
-  const { question, tenantId = 'demo', tenant, prompt, history } = req.body || {};
+  const { question, tenantId = 'demo', tenant, prompt, history, conversationId } = req.body || {};
 
   if (!question) {
     return res.status(400).json({ status: 'error', message: 'Falta el campo "question".' });
@@ -154,7 +155,28 @@ app.post('/api/agent/query', wrap(async (req, res) => {
     history
   });
   response.elapsedMs = Date.now() - t0; // tiempo de proceso en el servidor
+
+  // Registrar la conversación para poder analizarla después (no bloquea la respuesta).
+  chatLog.appendChat(tenantId, {
+    conversationId: conversationId || null,
+    question,
+    answer: response.text || '',
+    engine: response.engine || null,
+    status: response.status || null,
+    sources: (response.sources || []).map((s) => s.name),
+    rows: Array.isArray(response.data) ? response.data.length : 0,
+    elapsedMs: response.elapsedMs
+  });
+
   res.json(response);
+}));
+
+// Exportar las conversaciones de un cliente en CSV (para analizarlas fuera).
+app.get('/api/tenants/:id/chats.csv', wrap((req, res) => {
+  const csv = chatLog.exportCsv(req.params.id);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="chats-${req.params.id}.csv"`);
+  res.send('﻿' + csv); // BOM para que Excel abra bien los acentos
 }));
 
 // Servir el frontend compilado (client/dist) DESDE EL MISMO ORIGEN que la API.

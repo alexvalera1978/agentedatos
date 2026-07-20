@@ -254,6 +254,18 @@ export default function Admin() {
     flash('🗑 Origen borrado');
   });
 
+  // Descarga las conversaciones del cliente en CSV (usa authFetch para el token).
+  const downloadChats = wrap(async () => {
+    const res = await authFetch(`/api/tenants/${selected}/chats.csv`);
+    if (!res.ok) throw new Error('No se pudieron descargar las conversaciones.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `chats-${selected}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+
   const saveAll = wrap(async () => {
     const mappings = pairsToMappings(pairs, tableEntity);
     await api(`/api/tenants/${selected}`, 'PUT', { mappings, prompt, charts, llm });
@@ -289,7 +301,10 @@ export default function Admin() {
 
         {selected && config && (
           <>
-            <h2 style={{ marginTop: 0 }}>{config.tenant?.name} <span style={{ color: '#9ca3af', fontWeight: 400 }}>({selected})</span></h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+              <h2 style={{ marginTop: 0, marginBottom: 0 }}>{config.tenant?.name} <span style={{ color: '#9ca3af', fontWeight: 400 }}>({selected})</span></h2>
+              <button style={{ ...btnGhost, fontSize: '0.85rem' }} onClick={downloadChats} title="Descarga todas las preguntas y respuestas de este cliente en CSV">⬇ Descargar conversaciones (CSV)</button>
+            </div>
 
             <div style={box}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
